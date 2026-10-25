@@ -53,8 +53,9 @@ def keybind_status() -> tuple[bool, str]:
         binds = json.loads(subprocess.run(["hyprctl", "binds", "-j"], capture_output=True, text=True, timeout=5).stdout)
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         return False, f"Could not read Hyprland binds: {e}"
-    args = [b.get("arg", "") for b in binds]
-    missing = [cmd for cmd in ("ankihelper capture", "ankihelper batch") if not any(cmd in a for a in args)]
+    # Lua binds report a callback id as `arg`, so the description is the only place the command shows.
+    texts = [f"{b.get('arg', '')} {b.get('description', '')}".lower() for b in binds]
+    missing = [cmd for cmd in ("ankihelper capture", "ankihelper batch") if not any(cmd in t for t in texts)]
     if missing:
         return False, "No Hyprland binding runs: " + ", ".join(missing)
     return True, "capture and batch are bound"
@@ -64,7 +65,8 @@ def keybind_fix_hint() -> str:
     return (
         "On Hyprland (this machine uses the Lua config in ~/.config/hypr/, personal bindings go in "
         "~/.config/hypr/bindings.lua using o.bind(keys, description, command)): bind "
-        f"{CAPTURE_KEYS} to `ankihelper capture` and {BATCH_KEYS} to `ankihelper batch`. "
+        f"{CAPTURE_KEYS} to `ankihelper capture` with description \"AnkiHelper capture\" and {BATCH_KEYS} to "
+        "`ankihelper batch` with description \"AnkiHelper batch\". "
         "Also add a window rule so windows with class `ankihelper` float, are centered and about 720x520. "
         "Check the keys are free with `hyprctl binds -j` first; reload with `hyprctl reload` and confirm "
         "the binds appear in `hyprctl binds -j`."

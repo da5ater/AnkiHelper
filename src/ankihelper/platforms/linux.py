@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 
+SYSTEM_DICTATION: str | None = None
 NAME = "Linux"
 CAPTURE_KEYS = "SUPER + ALT + A"
 BATCH_KEYS = "SUPER + ALT + B"
@@ -40,10 +41,6 @@ def notify(title: str, body: str, offer_setup: bool = False) -> None:
     _detached(["sh", "-c", f'[ "$({send})" = setup ] && exec {setup}'])
 
 
-def dictation_status() -> tuple[bool, str]:
-    if shutil.which("voxtype"):
-        return True, "voxtype found"
-    return False, "voxtype is not installed (https://github.com/peteonrails/voxtype)"
 
 
 def keybind_status() -> tuple[bool, str]:
@@ -67,7 +64,7 @@ def keybind_fix_hint() -> str:
         "~/.config/hypr/bindings.lua using o.bind(keys, description, command)): bind "
         f"{CAPTURE_KEYS} to `ankihelper capture` with description \"AnkiHelper capture\" and {BATCH_KEYS} to "
         "`ankihelper batch` with description \"AnkiHelper batch\". "
-        "Also add a window rule so windows with class `ankihelper` float, are centered and about 720x520. "
+        "Also add a window rule so windows with class `ankihelper` float, are centered and about 940x640. "
         "Check the keys are free with `hyprctl binds -j` first; reload with `hyprctl reload` and confirm "
         "the binds appear in `hyprctl binds -j`."
     )

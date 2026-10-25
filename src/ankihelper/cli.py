@@ -58,25 +58,33 @@ def cmd_doctor(args) -> int:
 def cmd_capture(args) -> int:
     from . import gui
 
-    return gui.run_capture()
+    return gui.run("capture", close_after_save=not args.stay)
 
 
 def cmd_setup(args) -> int:
+    return gui_page(args.page)
+
+
+def gui_page(page: str) -> int:
     from . import gui
 
-    return gui.run_setup()
+    return gui.run(page)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ankihelper", description="Dictate Anki cards; batch-clean and import them.")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("capture", help="open the capture window").set_defaults(func=cmd_capture)
+    capture = sub.add_parser("capture", help="open the window on the capture page")
+    capture.add_argument("--stay", action="store_true", help="keep the window open after saving a card")
+    capture.set_defaults(func=cmd_capture)
     batch_parser = sub.add_parser("batch", help="clean the inbox with the agent and import it into Anki")
     batch_parser.add_argument("--agent", choices=list(agents.AGENTS), help="override the default agent for this run")
     batch_parser.set_defaults(func=cmd_batch)
-    sub.add_parser("setup", help="open the setup checklist").set_defaults(func=cmd_setup)
+    window = sub.add_parser("setup", help="open the window (setup page by default)")
+    window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "setup", "settings"])
+    window.set_defaults(func=cmd_setup)
     sub.add_parser("doctor", help="print the setup checklist").set_defaults(func=cmd_doctor)
     args = parser.parse_args(argv)
     if not args.command:
-        return cmd_setup(args)
+        return gui_page("capture")
     return args.func(args)

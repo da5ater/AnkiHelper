@@ -15,12 +15,14 @@ from ankihelper.config import Config  # noqa: E402
 def window():
     gui.make_app()
     cfg = Config(anki_url="http://127.0.0.1:9", known_topics=["ruby", "node::mosh"], last_topic="ruby")
-    w = gui.CaptureWindow(cfg)
-    w.show()
-    w.activateWindow()
-    assert QTest.qWaitForWindowActive(w)
+    main = gui.MainWindow(cfg, "capture", close_after_save=True)
+    main.show()
+    w = main.capture
+    main.activateWindow()
+    assert QTest.qWaitForWindowActive(main)
+    w.window_ = main
     yield w
-    w.close()
+    main.close()
 
 
 def test_ctrl_enter_saves_long_dictation_to_inbox(window):
@@ -35,14 +37,14 @@ def test_ctrl_enter_saves_long_dictation_to_inbox(window):
     assert entry.question == "how to generate a controller"
     assert entry.answer == long_answer.strip()
     assert entry.topic == "ruby", "last topic is preselected"
-    assert not window.isVisible()
+    assert not window.window_.isVisible()
     assert Config.load().last_topic == "ruby"
 
 
 def test_empty_question_is_not_saved(window):
     QTest.keyClick(window.question, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
     assert inbox.read_all() == []
-    assert window.isVisible()
+    assert window.window_.isVisible()
     assert "question" in window.status.text().lower()
 
 

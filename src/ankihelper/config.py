@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def log_dir() -> Path:
 @dataclass
 class Config:
     agent: str = "claude"
+    dictation: str = field(default_factory=lambda: "voxtype" if sys.platform.startswith("linux") else "system")
     anki_url: str = "http://127.0.0.1:8765"
     root_deck: str = "manual"
     note_type: str = "Basic+"

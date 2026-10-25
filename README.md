@@ -4,9 +4,12 @@ Make Anki cards while you study without leaving what you're doing. Press a short
 
 ## How it works
 
-1. **Capture.** `Super+Alt+A` runs `ankihelper capture`, a small window with Question, Answer and Topic. Dictate with any speech-to-text tool (Voxtype on Linux) or paste. Tab moves between fields, Ctrl+Enter saves, Esc cancels. Topic autocompletes from the subdecks of your `manual` deck. Each card is one line in `~/.local/share/ankihelper/inbox.jsonl`.
-2. **Batch.** `Super+Alt+B` runs `ankihelper batch`. It opens Anki if needed and sends the inbox to your agent on stdin, 20 entries per call. The agent returns cleaned cards as JSON. It runs without write access: Claude with no tools, Codex in its read-only sandbox, OpenCode with edit, bash and web access denied, and Gemini in default approval mode, which refuses tools that need confirmation. AnkiHelper then renders the cards (code highlighted with Pygments, monokai) and adds them to `manual::<topic>` with the `Basic+` note type, tagged `manual_voice` plus topic tags. It syncs to AnkiWeb and sends a notification with the result.
-3. **Setup.** `ankihelper setup` opens a checklist: Anki, AnkiConnect, the root deck, the note type, dictation, the CLI on PATH, the agent and the shortcuts. Fix a problem yourself and press **Recheck**, or press **Fix with agent** to let the selected agent fix it headlessly; the window shows its log and rechecks when it finishes. `ankihelper doctor` prints the same checklist in a terminal.
+Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbox, Setup and Settings.
+
+1. **Capture.** `Super+Alt+A` runs `ankihelper capture`, which opens the window on the Capture page: Question, Answer and Topic. Dictate with the mic button (it starts and stops Voxtype), your OS dictation, or paste. Tab moves between fields, Ctrl+Enter saves and closes, Esc closes. Topic autocompletes from the subdecks of your `manual` deck and shows the deck the card will land in. Each card is one line in `~/.local/share/ankihelper/inbox.jsonl`. Run `ankihelper capture --stay` to keep the window open between cards.
+2. **Inbox and batch.** The Inbox page lists waiting cards, lets you delete one, and has a **Process batch** button. `Super+Alt+B` runs `ankihelper batch` without opening the window. It opens Anki if needed and sends the inbox to your agent on stdin, 20 entries per call. The agent returns cleaned cards as JSON. It runs without write access: Claude with no tools, Codex in its read-only sandbox, OpenCode with edit, bash and web access denied, and Gemini in default approval mode, which refuses tools that need confirmation. AnkiHelper then renders the cards (code highlighted with Pygments, monokai) and adds them to `manual::<topic>` with the `Basic+` note type, tagged `manual_voice` plus topic tags. It syncs to AnkiWeb and sends a notification with the result.
+3. **Setup.** `ankihelper setup` opens the window on the Setup page, a checklist: Anki, AnkiConnect, the root deck, the note type, dictation, the CLI on PATH, the agent and the shortcuts. Fix a problem yourself and press **Recheck**, or press **Fix with agent** to let the selected agent fix it headlessly; the window shows its log and rechecks when it finishes. `ankihelper doctor` prints the same checklist in a terminal.
+4. **Settings.** Pick the agent (Claude, Codex, Gemini, OpenCode) and the dictation method (Voxtype, system dictation, keyboard only), and set the root deck, note type and AnkiConnect URL. Changes save immediately.
 
 ### What the agent does to a card
 
@@ -38,11 +41,12 @@ Setup tells you what's missing, and "Fix with agent" can install the shortcuts a
 
 ## Configuration
 
-`~/.local/share/ankihelper/config.json`:
+`~/.local/share/ankihelper/config.json` (also editable on the Settings page):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `claude` | `claude`, `codex`, `gemini` or `opencode`. `ankihelper batch --agent codex` overrides it for one run. |
+| `dictation` | `voxtype` on Linux, `system` elsewhere | `voxtype`, `system` or `none` |
 | `anki_url` | `http://127.0.0.1:8765` | AnkiConnect address |
 | `root_deck` | `manual` | Cards go to `<root_deck>::<topic>` |
 | `note_type` | `Basic+` | Must have the fields `Front` and `Back` |

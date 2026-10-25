@@ -2,7 +2,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Callable
 
-from . import agents
+from . import agents, dictation
 from .anki import AnkiConnect, AnkiError, AnkiUnreachable
 from .config import Config
 from .platforms import current as platform
@@ -61,7 +61,7 @@ def _note_type(cfg: Config) -> Result:
 
 
 def _dictation(cfg: Config) -> Result:
-    return Result(*platform.dictation_status())
+    return Result(*dictation.status(cfg.dictation))
 
 
 def _on_path(cfg: Config) -> Result:
@@ -96,7 +96,7 @@ CHECKS: list[Check] = [
     Check("ankiconnect", "AnkiConnect reachable", _ankiconnect, lambda cfg: f"Install the AnkiConnect add-on (2055492159), make sure it listens on {cfg.anki_url}, and that Anki starts."),
     Check("deck", "Root deck exists", _root_deck, lambda cfg: f"Create the deck '{cfg.root_deck}' through AnkiConnect's createDeck."),
     Check("notetype", "Note type ready", _note_type, lambda cfg: f"Create a note type '{cfg.note_type}' with fields Front and Back and one card template (front {{{{Front}}}}, back {{{{FrontSide}}}}<hr id=answer>{{{{Back}}}}) via AnkiConnect's createModel."),
-    Check("dictation", "Dictation available", _dictation, _hint("Install voxtype (Linux) and set its hotkey; on macOS/Windows the built-in dictation is used.")),
+    Check("dictation", "Dictation available", _dictation, _hint("Install voxtype (https://voxtype.io), run `voxtype setup`, and start its daemon (`systemctl --user enable --now voxtype`). Or pick another dictation method in Settings.")),
     Check("path", "ankihelper on PATH", _on_path, _hint("Install the CLI with `uv tool install --editable <project dir>` so `ankihelper` lands in ~/.local/bin, and make sure that directory is on PATH.")),
     Check("agent", "Agent CLI works", _agent, lambda cfg: f"Make the `{cfg.agent}` CLI installed and logged in so it can answer a non-interactive prompt."),
     Check("keybinds", "Shortcuts installed", _keybinds, lambda cfg: platform.keybind_fix_hint()),

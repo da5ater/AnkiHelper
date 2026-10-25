@@ -53,6 +53,10 @@ def read_all() -> list[Entry]:
         return _read_unlocked()
 
 
+def remove(entry_id: str) -> None:
+    finish({entry_id}, {}, {})
+
+
 def finish(done_ids: set[str], failures: dict[str, str], leftovers: dict[str, list[dict]]) -> None:
     """Drop imported entries and record errors, keeping anything captured while the batch ran."""
     with _lock():

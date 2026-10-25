@@ -2,6 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 
+SYSTEM_DICTATION: str | None = "Windows voice typing: press Win+H in a text field"
 NAME = "Windows"
 
 
@@ -30,8 +31,6 @@ def notify(title: str, body: str, offer_setup: bool = False) -> None:
     subprocess.Popen(["powershell", "-NoProfile", "-Command", script], creationflags=subprocess.DETACHED_PROCESS)
 
 
-def dictation_status() -> tuple[bool, str]:
-    return True, "Windows voice typing (Win+H in any text field)"
 
 
 def keybind_status() -> tuple[bool, str]:

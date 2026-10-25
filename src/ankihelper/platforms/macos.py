@@ -2,6 +2,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+SYSTEM_DICTATION: str | None = "macOS Dictation: press the Fn key twice in a text field"
 NAME = "macOS"
 
 
@@ -18,8 +19,6 @@ def notify(title: str, body: str, offer_setup: bool = False) -> None:
     subprocess.Popen(["osascript", "-e", script, title, body])
 
 
-def dictation_status() -> tuple[bool, str]:
-    return True, "macOS Dictation (press the dictation key in any text field)"
 
 
 def keybind_status() -> tuple[bool, str]:

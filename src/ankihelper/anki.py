@@ -10,7 +10,11 @@ class AnkiError(Exception):
     """AnkiConnect answered with an error for this request."""
 
 
-class AnkiUnreachable(Exception):
+class SetupProblem(Exception):
+    """Something `ankihelper setup` should fix before a batch can run."""
+
+
+class AnkiUnreachable(SetupProblem):
     """Anki is not running, or AnkiConnect is not installed."""
 
 

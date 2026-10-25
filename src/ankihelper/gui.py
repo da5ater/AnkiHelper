@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -38,7 +39,8 @@ def topics(cfg: Config) -> list[str]:
     if anki.is_up(timeout=0.3):
         try:
             prefix = cfg.root_deck + "::"
-            cfg.known_topics = sorted(d[len(prefix) :] for d in anki.deck_names() if d.startswith(prefix))
+            decks = anki.invoke("deckNames", timeout=1)
+            cfg.known_topics = sorted(d[len(prefix) :] for d in decks if d.startswith(prefix))
             cfg.save()
         except (AnkiError, AnkiUnreachable):
             pass
@@ -127,6 +129,7 @@ class SetupWindow(QWidget):
         self.thread: QThread | None = None
         self.process: QProcess | None = None
         self.log_file: Path | None = None
+        self.closing = False
         self.setWindowTitle("AnkiHelper - setup")
         self.resize(820, 640)
 
@@ -185,7 +188,28 @@ class SetupWindow(QWidget):
         self.thread.start()
 
     def _thread_done(self) -> None:
+        self.thread.wait()
         self.thread = None
+        if self.closing:
+            QApplication.quit()
+
+    def closeEvent(self, event) -> None:
+        if self.process is not None:
+            answer = QMessageBox.question(
+                self, "Agent is still fixing", "Stopping now may leave a config file half edited. Stop the agent?"
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self.process.finished.disconnect()
+            self.process.kill()
+            self.process.waitForFinished(3000)
+        if self.thread is not None:
+            self.closing = True
+            self.hide()
+            event.ignore()
+            return
+        event.accept()
 
     def _show(self, results: list) -> None:
         self.results = results
@@ -222,7 +246,14 @@ class SetupWindow(QWidget):
         self.process.setWorkingDirectory(PROJECT_DIR)
         self.process.readyReadStandardOutput.connect(self._read_output)
         self.process.finished.connect(self._fix_done)
+        self.process.errorOccurred.connect(self._fix_failed_to_start)
         self.process.start(cmd[0], cmd[1:])
+
+    def _fix_failed_to_start(self, error) -> None:
+        if error == QProcess.ProcessError.FailedToStart:
+            self.log.appendPlainText(f"Could not start {self.cfg.agent}: {self.process.errorString()}")
+            self.process = None
+            self._busy(False, "The agent did not start.")
 
     def _read_output(self) -> None:
         text = bytes(self.process.readAllStandardOutput()).decode(errors="replace")

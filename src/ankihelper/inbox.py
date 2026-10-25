@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -17,6 +18,8 @@ class Entry:
     topic: str
     attempts: int = 0
     error: str | None = None
+    cards: list[dict] | None = None
+    """Cleaned cards still waiting to be imported, so a retry does not ask the agent again."""
 
     @classmethod
     def new(cls, question: str, answer: str, topic: str) -> "Entry":
@@ -50,7 +53,7 @@ def read_all() -> list[Entry]:
         return _read_unlocked()
 
 
-def finish(done_ids: set[str], failures: dict[str, str]) -> None:
+def finish(done_ids: set[str], failures: dict[str, str], leftovers: dict[str, list[dict]]) -> None:
     """Drop imported entries and record errors, keeping anything captured while the batch ran."""
     with _lock():
         kept = []
@@ -60,10 +63,14 @@ def finish(done_ids: set[str], failures: dict[str, str]) -> None:
             if entry.id in failures:
                 entry.attempts += 1
                 entry.error = failures[entry.id]
+                entry.cards = leftovers.get(entry.id)
             kept.append(entry)
         path = config.inbox_path()
         tmp = path.with_suffix(".tmp")
-        tmp.write_text("".join(json.dumps(asdict(e)) + "\n" for e in kept))
+        with tmp.open("w") as f:
+            f.write("".join(json.dumps(asdict(e)) + "\n" for e in kept))
+            f.flush()
+            os.fsync(f.fileno())
         tmp.replace(path)
 
 

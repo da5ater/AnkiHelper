@@ -17,11 +17,15 @@ def launch_anki() -> None:
     subprocess.Popen([str(_anki_exe())], creationflags=subprocess.DETACHED_PROCESS)
 
 
+def _ps_quote(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
 def notify(title: str, body: str, offer_setup: bool = False) -> None:
     script = (
         "[reflection.assembly]::loadwithpartialname('System.Windows.Forms') | Out-Null;"
         "$n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information;"
-        f"$n.Visible = $true; $n.ShowBalloonTip(8000, '{title}', '{body}', 'Info'); Start-Sleep 9"
+        f"$n.Visible = $true; $n.ShowBalloonTip(8000, {_ps_quote(title)}, {_ps_quote(body)}, 'Info'); Start-Sleep 9"
     )
     subprocess.Popen(["powershell", "-NoProfile", "-Command", script], creationflags=subprocess.DETACHED_PROCESS)
 

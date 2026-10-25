@@ -4,27 +4,38 @@ import traceback
 from datetime import datetime
 
 from . import agents, batch, checks, config
-from .anki import AnkiConnect, AnkiUnreachable
+from .anki import AnkiConnect, SetupProblem
 from .config import Config
 from .platforms import current as platform
 
 
+def _log_traceback(name: str):
+    log = config.log_dir() / f"{name}-{datetime.now():%Y%m%d-%H%M%S}.log"
+    log.write_text(traceback.format_exc())
+    return log
+
+
 def cmd_batch(args) -> int:
     cfg = Config.load()
-    if args.agent:
-        agents.get(args.agent)
     try:
         summary = batch.run(cfg, AnkiConnect(cfg.anki_url), agent=args.agent)
-    except AnkiUnreachable as error:
-        platform.notify("AnkiHelper: Anki problem", str(error), offer_setup=True)
+    except batch.BatchRunning as error:
+        platform.notify("AnkiHelper", str(error))
+        print(error, file=sys.stderr)
+        return 4
+    except SetupProblem as error:
+        platform.notify("AnkiHelper: setup problem", f"{error}\nCards imported before this point are saved.", offer_setup=True)
         print(error, file=sys.stderr)
         return 2
     except agents.AgentError as error:
-        log = config.log_dir() / f"batch-{datetime.now():%Y%m%d-%H%M%S}.log"
-        log.write_text(traceback.format_exc())
+        log = _log_traceback("batch")
         platform.notify("AnkiHelper: agent problem", f"{error}\nNothing was imported. Log: {log}", offer_setup=True)
         print(error, file=sys.stderr)
         return 3
+    except Exception as error:
+        log = _log_traceback("batch")
+        platform.notify("AnkiHelper: batch crashed", f"{error}\nLog: {log}", offer_setup=True)
+        raise
     if summary.imported == summary.duplicates == summary.skipped == 0 and not summary.failed:
         platform.notify("AnkiHelper", "Inbox is empty")
         print("Inbox is empty")

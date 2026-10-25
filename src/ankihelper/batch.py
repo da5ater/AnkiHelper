@@ -1,12 +1,16 @@
 import json
 from dataclasses import asdict, dataclass, field
 
-from . import agents, inbox, render
-from .anki import AnkiConnect, AnkiError, AnkiUnreachable, DuplicateNote
+from filelock import FileLock, Timeout
+
+from . import agents, config, inbox, render
+from .anki import AnkiConnect, AnkiError, AnkiUnreachable, DuplicateNote, SetupProblem
 from .config import Config
 from .inbox import Entry
 
 REPAIR_ATTEMPTS = 2
+CLEAN_ATTEMPTS = 2
+ENTRIES_PER_AGENT_CALL = 20
 SOURCE_TAG = "manual_voice"
 
 
@@ -19,7 +23,9 @@ class Card:
     changed: bool
 
     @classmethod
-    def parse(cls, raw: dict) -> "Card":
+    def parse(cls, raw) -> "Card":
+        if not isinstance(raw, dict):
+            raise agents.AgentError(f"card is not an object: {raw!r}")
         question, answer = raw.get("question"), raw.get("answer")
         if not isinstance(question, str) or not question.strip():
             raise agents.AgentError(f"card without a question: {raw!r}")
@@ -27,6 +33,10 @@ class Card:
             raise agents.AgentError(f"card without an answer: {raw!r}")
         tags = [str(t).strip().lower().replace(" ", "-") for t in raw.get("tags") or [] if str(t).strip()]
         return cls(str(raw.get("source_id", "")), question, answer, tags, bool(raw.get("changed")))
+
+
+class BatchRunning(Exception):
+    pass
 
 
 @dataclass
@@ -59,23 +69,37 @@ def deck_for(cfg: Config, topic: str) -> str:
     return f"{cfg.root_deck}::{topic}" if topic else cfg.root_deck
 
 
+def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dict[str, str]]:
+    raw_cards, raw_skipped = reply.get("cards") or [], reply.get("skipped") or []
+    if not isinstance(raw_cards, list) or not isinstance(raw_skipped, list):
+        raise agents.AgentError(f"reply has the wrong shape: {str(reply)[:300]}")
+    cards: dict[str, list[Card]] = {}
+    for raw in raw_cards:
+        card = Card.parse(raw)
+        if card.source_id in ids:
+            cards.setdefault(card.source_id, []).append(card)
+    skipped = {}
+    for raw in raw_skipped:
+        if not isinstance(raw, dict):
+            raise agents.AgentError(f"skipped item is not an object: {raw!r}")
+        source_id = str(raw.get("source_id"))
+        if source_id in ids and source_id not in cards:
+            skipped[source_id] = str(raw.get("reason", "unusable"))
+    return cards, skipped
+
+
 def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict[str, str]]:
     payload = "\n".join(
         json.dumps({"id": e.id, "question": e.question, "answer": e.answer, "topic": e.topic}) for e in entries
     )
-    reply = agents.ask_json(agent, agents.prompt("process", entries=payload))
-    ids = {e.id for e in entries}
-    cards: dict[str, list[Card]] = {}
-    for raw in reply.get("cards") or []:
-        card = Card.parse(raw)
-        if card.source_id in ids:
-            cards.setdefault(card.source_id, []).append(card)
-    skipped = {
-        str(s.get("source_id")): str(s.get("reason", "unusable"))
-        for s in reply.get("skipped") or []
-        if s.get("source_id") in ids and s.get("source_id") not in cards
-    }
-    return cards, skipped
+    text = agents.prompt("process", entries=payload)
+    for attempt in range(CLEAN_ATTEMPTS):
+        try:
+            return _parse_reply(agents.extract_json(agents.ask(agent, text)), {e.id for e in entries})
+        except agents.AgentError:
+            if attempt == CLEAN_ATTEMPTS - 1:
+                raise
+    raise AssertionError("unreachable")
 
 
 def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card) -> None:
@@ -94,62 +118,111 @@ def import_card(anki: AnkiConnect, cfg: Config, agent: str, deck: str, card: Car
         except AnkiError as error:
             if attempt == REPAIR_ATTEMPTS:
                 raise
-            reply = agents.ask_json(agent, agents.prompt("repair", card=json.dumps(asdict(card)), error=str(error)))
+            reply = agents.extract_json(
+                agents.ask(agent, agents.prompt("repair", card=json.dumps(asdict(card)), error=str(error)))
+            )
             card = Card.parse(reply.get("card", reply))
     raise AssertionError("unreachable")
 
 
 def run(cfg: Config, anki: AnkiConnect, agent: str | None = None) -> Summary:
-    agent = agent or cfg.agent
+    lock = FileLock(str(config.data_dir() / "batch.lock"))
+    try:
+        lock.acquire(timeout=0)
+    except Timeout:
+        raise BatchRunning("A batch is already running") from None
+    try:
+        return _run(cfg, anki, agent or cfg.agent)
+    finally:
+        lock.release()
+
+
+def _clean_all(agent: str, entries: list[Entry], summary: Summary) -> tuple[dict[str, list[Card]], dict[str, str]]:
+    cards = {e.id: [Card.parse(c) for c in e.cards] for e in entries if e.cards}
+    fresh = [e for e in entries if not e.cards]
+    skipped: dict[str, str] = {}
+    errors: list[agents.AgentError] = []
+    for start in range(0, len(fresh), ENTRIES_PER_AGENT_CALL):
+        chunk = fresh[start : start + ENTRIES_PER_AGENT_CALL]
+        try:
+            chunk_cards, chunk_skipped = clean(agent, chunk)
+        except agents.AgentError as error:
+            errors.append(error)
+            summary.failed.update({e.id: str(error) for e in chunk})
+            continue
+        cards.update(chunk_cards)
+        skipped.update(chunk_skipped)
+    if errors and not cards and not skipped:
+        raise errors[0]
+    return cards, skipped
+
+
+def _run(cfg: Config, anki: AnkiConnect, agent: str) -> Summary:
     entries = inbox.read_all()
     summary = Summary()
     if not entries:
         return summary
 
     anki.ensure_running()
-    fields = anki.field_names(cfg.note_type)
+    try:
+        fields = anki.field_names(cfg.note_type)
+    except AnkiError as error:
+        raise SetupProblem(f"Note type {cfg.note_type!r} is missing: {error}") from error
     if fields[:2] != ["Front", "Back"]:
-        raise AnkiUnreachable(f"Note type {cfg.note_type!r} must have fields Front, Back (has {fields})")
+        raise SetupProblem(f"Note type {cfg.note_type!r} must have fields Front, Back (has {fields})")
 
-    cards, skipped = clean(agent, entries)
+    cards, skipped = _clean_all(agent, entries, summary)
     done: set[str] = set()
     archived: list[dict] = []
+    leftovers: dict[str, list[dict]] = {}
     known_decks = set(anki.deck_names())
+    stopped: AnkiUnreachable | None = None
 
-    for entry in entries:
-        if entry.id in skipped:
-            summary.skipped += 1
-            done.add(entry.id)
-            archived.append({"entry": asdict(entry), "skipped": skipped[entry.id]})
-            continue
-        if entry.id not in cards:
-            summary.failed[entry.id] = "the agent returned no card for this entry"
-            continue
-        deck = deck_for(cfg, entry.topic)
-        if deck not in known_decks:
-            anki.create_deck(deck)
-            known_decks.add(deck)
-        results = []
-        try:
-            for card in cards[entry.id]:
-                outcome, final = import_card(anki, cfg, agent, deck, card)
-                results.append({"outcome": outcome, "card": asdict(final)})
-        except (AnkiError, agents.AgentError) as error:
-            summary.failed[entry.id] = str(error)
-            if not results:
+    try:
+        for entry in entries:
+            if entry.id in summary.failed:
                 continue
-        for result in results:
-            if result["outcome"] == "imported":
-                summary.imported += 1
-                summary.changed += result["card"]["changed"]
-            else:
-                summary.duplicates += 1
-        if entry.id not in summary.failed:
-            done.add(entry.id)
-        archived.append({"entry": asdict(entry), "deck": deck, "cards": results})
+            if entry.id in skipped:
+                summary.skipped += 1
+                done.add(entry.id)
+                archived.append({"entry": asdict(entry), "skipped": skipped[entry.id]})
+                continue
+            if entry.id not in cards:
+                summary.failed[entry.id] = "the agent returned no card for this entry"
+                continue
+            deck = deck_for(cfg, entry.topic)
+            entry_cards = cards[entry.id]
+            results = []
+            try:
+                if deck not in known_decks:
+                    anki.create_deck(deck)
+                    known_decks.add(deck)
+                for card in entry_cards:
+                    outcome, final = import_card(anki, cfg, agent, deck, card)
+                    results.append({"outcome": outcome, "card": asdict(final)})
+            except (AnkiError, agents.AgentError, AnkiUnreachable) as error:
+                summary.failed[entry.id] = str(error)
+                leftovers[entry.id] = [asdict(c) for c in entry_cards[len(results) :]]
+                if isinstance(error, AnkiUnreachable):
+                    stopped = error
+            for result in results:
+                if result["outcome"] == "imported":
+                    summary.imported += 1
+                    summary.changed += result["card"]["changed"]
+                else:
+                    summary.duplicates += 1
+            if entry.id not in summary.failed:
+                done.add(entry.id)
+            if results:
+                archived.append({"entry": asdict(entry), "deck": deck, "cards": results})
+            if stopped:
+                break
+    finally:
+        inbox.archive(archived)
+        inbox.finish(done, summary.failed, leftovers)
 
-    inbox.finish(done, summary.failed)
-    inbox.archive(archived)
+    if stopped:
+        raise stopped
     try:
         anki.sync()
     except (AnkiError, AnkiUnreachable) as error:

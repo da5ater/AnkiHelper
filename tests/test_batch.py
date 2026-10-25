@@ -3,7 +3,7 @@ import json
 import pytest
 
 from ankihelper import agents, batch, config, inbox
-from ankihelper.anki import AnkiConnect, AnkiUnreachable
+from ankihelper.anki import AnkiConnect, AnkiUnreachable, SetupProblem
 from ankihelper.config import Config
 
 
@@ -37,6 +37,12 @@ class ScriptedAgent:
         for e in entries_in_prompt(prompt_text):
             if e["question"] == "uh":
                 skipped.append({"source_id": e["id"], "reason": "unintelligible"})
+                continue
+            if "split" in e["question"]:
+                cards += [
+                    {"source_id": e["id"], "question": f"part {n} of {e['question']}", "answer": "x", "tags": [], "changed": False}
+                    for n in (1, 2, 3)
+                ]
                 continue
             cards.append(
                 {
@@ -191,3 +197,85 @@ def test_capture_during_batch_is_not_lost(setup, agent, monkeypatch):
     batch.run(cfg, anki)
 
     assert [e.question for e in inbox.read_all()] == ["captured mid-batch"]
+
+
+def test_anki_dying_mid_batch_keeps_what_was_already_imported(setup, fake_anki, agent, monkeypatch):
+    cfg, anki = setup
+    capture("what is a gem", "a ruby library", "ruby")
+    capture("what is rack", "a webserver interface", "ruby")
+    original = anki.add_note
+    calls = []
+
+    def add_then_die(*args):
+        calls.append(args)
+        if len(calls) == 2:
+            raise AnkiUnreachable("connection reset")
+        return original(*args)
+
+    monkeypatch.setattr(anki, "add_note", add_then_die)
+    with pytest.raises(AnkiUnreachable):
+        batch.run(cfg, anki)
+
+    [left] = inbox.read_all()
+    assert left.question == "what is rack"
+    assert left.cards and left.cards[0]["question"] == "What is rack?", "cleaned card is kept for the retry"
+    assert len(fake_anki.notes) == 1
+
+
+def test_split_entry_retries_only_the_cards_that_failed_without_asking_the_agent_again(setup, fake_anki, agent):
+    cfg, anki = setup
+    fake_anki.reject_fronts_containing = "part 2"
+    capture("split what are the three ruby scopes", "local global instance", "ruby")
+
+    first = batch.run(cfg, anki)
+    assert first.imported == 1 and len(first.failed) == 1
+    [left] = inbox.read_all()
+    assert [c["question"] for c in left.cards] == ["part 2 of split what are the three ruby scopes", "part 3 of split what are the three ruby scopes"]
+
+    fake_anki.reject_fronts_containing = "never matches"
+    cleaning_calls = sum("Entries (JSON lines" in c for c in agent.calls)
+    second = batch.run(cfg, anki)
+
+    assert (second.imported, second.duplicates) == (2, 0)
+    assert sum("Entries (JSON lines" in c for c in agent.calls) == cleaning_calls
+    assert len(fake_anki.notes) == 3
+    assert inbox.read_all() == []
+
+
+def test_second_batch_while_one_runs_is_refused(setup, agent):
+    from filelock import FileLock
+
+    cfg, anki = setup
+    capture("what is a gem", "a ruby library", "ruby")
+    with FileLock(str(config.data_dir() / "batch.lock")):
+        with pytest.raises(batch.BatchRunning):
+            batch.run(cfg, anki)
+    assert len(inbox.read_all()) == 1
+
+
+def test_reply_with_wrong_shape_is_retried(setup, agent):
+    cfg, anki = setup
+    agent.process_replies = ['{"cards": [1, 2]}']
+    capture("what is a gem", "a ruby library", "ruby")
+
+    assert batch.run(cfg, anki).imported == 1
+
+
+def test_missing_note_type_is_a_setup_problem(fake_anki, agent):
+    capture("what is a gem", "a ruby library", "ruby")
+    cfg = Config(anki_url=fake_anki.url, note_type="Nope")
+
+    with pytest.raises(SetupProblem):
+        batch.run(cfg, AnkiConnect(fake_anki.url))
+    assert agent.calls == []
+
+
+def test_large_inbox_is_sent_in_chunks_over_stdin(setup, fake_anki, agent):
+    cfg, anki = setup
+    for n in range(45):
+        capture(f"question number {n} " + "padding " * 400, "answer", "ruby")
+
+    summary = batch.run(cfg, anki)
+
+    assert summary.imported == 45
+    assert sum("Entries (JSON lines" in c for c in agent.calls) == 3

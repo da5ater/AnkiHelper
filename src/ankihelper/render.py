@@ -12,7 +12,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.util import ClassNotFound
 
-FENCE = re.compile(r"```[ \t]*([\w+#.-]*)[ \t]*\n(.*?)(?:\n)?```", re.S)
+FENCE = re.compile(r"^[ \t]*```[ \t]*([\w+#.-]*)[^\n]*\n(.*?)\n?^[ \t]*```[ \t]*$", re.S | re.M)
 CODE_BOX = (
     "background: #272822; padding: 0.7rem 0.8rem; border-radius: 8px; overflow-x: auto; "
     "line-height: 1.4; font-size: 0.8em; text-align: left;"

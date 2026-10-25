@@ -14,8 +14,8 @@ def launch_anki() -> None:
 
 
 def notify(title: str, body: str, offer_setup: bool = False) -> None:
-    script = f"display notification {body!r} with title {title!r}"
-    subprocess.Popen(["osascript", "-e", script.replace("'", '"')])
+    script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"
+    subprocess.Popen(["osascript", "-e", script, title, body])
 
 
 def dictation_status() -> tuple[bool, str]:

@@ -80,7 +80,8 @@ def ask(name: str, prompt_text: str, timeout: float = 600) -> str:
     except subprocess.TimeoutExpired as e:
         raise AgentError(f"{name} did not answer within {timeout:.0f}s") from e
     if done.returncode != 0:
-        raise AgentError(f"{name} exited {done.returncode}: {(done.stderr or done.stdout).strip()[-800:]}")
+        tail = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()][-3:]
+        raise AgentError(f"{name} exited {done.returncode}: " + " | ".join(tail))
     return done.stdout
 
 

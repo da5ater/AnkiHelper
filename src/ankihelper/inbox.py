@@ -65,6 +65,16 @@ def read_all() -> list[Entry]:
         return _read_unlocked()
 
 
+def approve(entry_id: str, cards: list[dict]) -> None:
+    """Lock in reviewed cards so the batch imports them as they are."""
+    with _lock():
+        entries = _read_unlocked()
+        for entry in entries:
+            if entry.id == entry_id:
+                entry.cards, entry.error = cards, None
+        _write_unlocked(entries)
+
+
 def remove(entry_id: str) -> None:
     finish({entry_id}, {}, {})
 
@@ -81,13 +91,17 @@ def finish(done_ids: set[str], failures: dict[str, str], leftovers: dict[str, li
                 entry.error = failures[entry.id]
                 entry.cards = leftovers.get(entry.id)
             kept.append(entry)
-        path = config.inbox_path()
-        tmp = path.with_suffix(".tmp")
-        with tmp.open("w") as f:
-            f.write("".join(json.dumps(asdict(e)) + "\n" for e in kept))
-            f.flush()
-            os.fsync(f.fileno())
-        tmp.replace(path)
+        _write_unlocked(kept)
+
+
+def _write_unlocked(entries: list[Entry]) -> None:
+    path = config.inbox_path()
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w") as f:
+        f.write("".join(json.dumps(asdict(e)) + "\n" for e in entries))
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
 
 
 def archive(records: list[dict]) -> None:

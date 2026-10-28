@@ -11,6 +11,7 @@ from .common import Page, card, label, pill
 
 class InboxPage(Page):
     changed = Signal()
+    preview_requested = Signal(object)
 
     def __init__(self, cfg: Config):
         super().__init__("Inbox", "Cards waiting for the agent. Process them when you finish studying.", theme.AMBER)
@@ -79,7 +80,9 @@ class InboxPage(Page):
             tags.addWidget(pill(f"🖼 {shown}", theme.VIOLET))
         if len(entry.images or []) - shown:
             tags.addWidget(pill(f"📖 {len(entry.images) - shown} to read", theme.CYAN))
-        if entry.cards:
+        if entry.cards and not entry.error:
+            tags.addWidget(pill(f"✓ {len(entry.cards)} card(s) approved", theme.GREEN))
+        elif entry.cards:
             tags.addWidget(pill(f"{len(entry.cards)} cleaned, retrying import", theme.CYAN))
         if entry.attempts:
             tags.addWidget(pill(f"failed {entry.attempts}×", theme.RED))
@@ -88,6 +91,10 @@ class InboxPage(Page):
         if entry.error:
             text.addWidget(label(entry.error, "error", wrap=True))
         layout.addLayout(text, 1)
+        preview = QPushButton("👁  Preview")
+        preview.setToolTip("See the cards the agent would make, and redo them with feedback")
+        preview.clicked.connect(lambda: self.preview_requested.emit(entry))
+        layout.addWidget(preview, 0, Qt.AlignmentFlag.AlignVCenter)
         delete = QPushButton("✕")
         delete.setObjectName("danger")
         delete.setToolTip("Delete this card")

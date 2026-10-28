@@ -27,6 +27,16 @@ The rules above and below are defaults. When an entry tells you how to build the
 
 "Bold signaling" means each bullet starts with its key term in **bold**, followed by a short plain explanation: "- **Stop guessing capacity**: scale with demand instead of provisioning for a guessed peak."
 
+## The learner's personal rules
+
+These come from the learner's past feedback. Follow them; they override the defaults too.
+
+{rules}
+
+## Redos
+
+An entry with a "revision" field is a redo: "previous_cards" are the cards you made last time and "feedback" is what the learner wants changed. Make new cards that fix exactly that and keep what they did not complain about.
+
 ## Rules
 
 1. Write every question and answer in {language}, whatever language the entry is in. If an entry has a "language" field, use that language for that entry instead. Never translate code, commands, identifiers, product names or established technical terms (keep "Well-Architected Framework", `rails generate`, "idempotent").

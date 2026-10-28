@@ -30,6 +30,15 @@ def media_dir() -> Path:
     return path
 
 
+def rules_path() -> Path:
+    return data_dir() / "rules.md"
+
+
+def personal_rules() -> str:
+    path = rules_path()
+    return path.read_text().strip() if path.exists() else ""
+
+
 def log_dir() -> Path:
     path = data_dir() / "logs"
     path.mkdir(exist_ok=True)

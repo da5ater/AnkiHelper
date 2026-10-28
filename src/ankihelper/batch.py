@@ -98,7 +98,10 @@ def _media_paths(files: list[str]) -> list[str]:
     return [str(config.media_dir() / name) for name in files]
 
 
-def clean(agent: str, entries: list[Entry], language: str) -> tuple[dict[str, list[Card]], dict[str, str]]:
+def clean(
+    agent: str, entries: list[Entry], language: str, revisions: dict[str, dict] | None = None
+) -> tuple[dict[str, list[Card]], dict[str, str]]:
+    """revisions maps an entry id to {"previous_cards": [...], "feedback": "..."} when the learner asked for a redo."""
     rows = []
     to_read: list[str] = []
     for e in entries:
@@ -116,10 +119,16 @@ def clean(agent: str, entries: list[Entry], language: str) -> tuple[dict[str, li
                     "answer_images": len(e.images_for("answer", "show")),
                     "question_read_images": read["question"],
                     "answer_read_images": read["answer"],
+                    **({"revision": revisions[e.id]} if revisions and e.id in revisions else {}),
                 }
             )
         )
-    text = agents.prompt("process", entries="\n".join(rows), language=language)
+    text = agents.prompt(
+        "process",
+        entries="\n".join(rows),
+        language=language,
+        rules=config.personal_rules() or "(none yet)",
+    )
     for attempt in range(CLEAN_ATTEMPTS):
         try:
             reply = agents.ask(agent, text, images=to_read)
@@ -130,15 +139,19 @@ def clean(agent: str, entries: list[Entry], language: str) -> tuple[dict[str, li
     raise AssertionError("unreachable")
 
 
-def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
-    tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else [])]
+def card_html(card: Card, entry: Entry) -> tuple[str, str]:
     front = render.question_html(card.question) + render.images_html(entry.images_for("question", "show"))
     back = (
         render.to_html(card.answer)
         + render.images_html(entry.images_for("answer", "show"))
         + render.source_html(entry.images_for("question", "read") + entry.images_for("answer", "read"))
     )
-    anki.add_note(deck, cfg.note_type, front, back, tags)
+    return front, back
+
+
+def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
+    tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else [])]
+    anki.add_note(deck, cfg.note_type, *card_html(card, entry), tags)
 
 
 def _store_images(anki: AnkiConnect, entry: Entry) -> None:
@@ -164,14 +177,14 @@ def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: 
     raise AssertionError("unreachable")
 
 
-def run(cfg: Config, anki: AnkiConnect, agent: str | None = None) -> Summary:
+def run(cfg: Config, anki: AnkiConnect, agent: str | None = None, only: set[str] | None = None) -> Summary:
     lock = FileLock(str(config.data_dir() / "batch.lock"))
     try:
         lock.acquire(timeout=0)
     except Timeout:
         raise BatchRunning("A batch is already running") from None
     try:
-        return _run(cfg, anki, agent or cfg.agent)
+        return _run(cfg, anki, agent or cfg.agent, only)
     finally:
         lock.release()
 
@@ -196,8 +209,8 @@ def _clean_all(agent: str, language: str, entries: list[Entry], summary: Summary
     return cards, skipped
 
 
-def _run(cfg: Config, anki: AnkiConnect, agent: str) -> Summary:
-    entries = inbox.read_all()
+def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = None) -> Summary:
+    entries = [e for e in inbox.read_all() if only is None or e.id in only]
     summary = Summary()
     if not entries:
         return summary

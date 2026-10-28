@@ -19,6 +19,7 @@ from . import theme
 from .capture import CapturePage
 from .common import label, pill
 from .inbox_page import InboxPage
+from .review_page import ReviewPage
 from .settings_page import SettingsPage
 from .setup_page import SetupPage
 
@@ -47,7 +48,14 @@ class MainWindow(QWidget):
         self.inbox = InboxPage(cfg)
         self.setup = SetupPage(cfg)
         self.settings = SettingsPage(cfg)
-        self.pages = {"capture": self.capture, "inbox": self.inbox, "setup": self.setup, "settings": self.settings}
+        self.review = ReviewPage(cfg)
+        self.pages = {
+            "capture": self.capture,
+            "inbox": self.inbox,
+            "setup": self.setup,
+            "settings": self.settings,
+            "review": self.review,
+        }
         self.stack = QStackedWidget()
         for widget in self.pages.values():
             self.stack.addWidget(widget)
@@ -55,6 +63,10 @@ class MainWindow(QWidget):
         self.capture.saved.connect(self._refresh_badges)
         self.capture.close_requested.connect(self.close)
         self.inbox.changed.connect(self._refresh_badges)
+        self.inbox.preview_requested.connect(self._preview)
+        self.review.back.connect(lambda: self.go("inbox"))
+        self.review.changed.connect(self._refresh_badges)
+        self.review.changed.connect(self.settings.reload_rules)
         self.settings.changed.connect(self._settings_changed)
         self.setup.idle.connect(self._maybe_quit)
 
@@ -109,8 +121,12 @@ class MainWindow(QWidget):
         self._refresh_badges()
         return frame
 
+    def _preview(self, entry) -> None:
+        self.go("review")
+        self.review.open(entry)
+
     def go(self, name: str) -> None:
-        self.nav_buttons[name].setChecked(True)
+        self.nav_buttons["inbox" if name == "review" else name].setChecked(True)
         self.stack.setCurrentWidget(self.pages[name])
         self.pages[name].shown()
 

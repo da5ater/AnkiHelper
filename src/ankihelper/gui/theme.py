@@ -65,6 +65,7 @@ QComboBox::drop-down {{ border: none; width: 28px; }}
 QComboBox QAbstractItemView {{
     background: {SURFACE_HI}; border: 1px solid {BORDER}; selection-background-color: {VIOLET}; padding: 4px;
 }}
+QTextBrowser#preview {{ background: {SURFACE}; border: 2px solid {BORDER}; border-radius: 14px; padding: 10px; }}
 QPlainTextEdit#log {{
     font-family: "CaskaydiaMono Nerd Font", "JetBrains Mono", monospace; font-size: 12px;
     background: #0b0916; color: {MUTED}; border-radius: 12px;

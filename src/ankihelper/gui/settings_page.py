@@ -1,7 +1,7 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QFormLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QFormLayout, QGridLayout, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from .. import agents, dictation
+from .. import agents, config, dictation
 from ..config import Config
 from . import theme
 from .common import Page, label, language_box
@@ -71,6 +71,16 @@ class SettingsPage(Page):
         layout.addWidget(self.language)
 
         layout.addSpacing(8)
+        layout.addWidget(label("Personal rules", "sectionTitle"))
+        layout.addWidget(label("Your standing instructions for every card. Saved from Preview, or write your own, one per line.", "muted", wrap=True))
+        self.rules = QPlainTextEdit()
+        self.rules.setPlaceholderText("- Prefer why and when questions over definitions.")
+        self.rules.setMinimumHeight(110)
+        self.rules.textChanged.connect(self._save_rules)
+        layout.addWidget(self.rules)
+        self.reload_rules()
+
+        layout.addSpacing(8)
         layout.addWidget(label("Anki", "sectionTitle"))
         form = QFormLayout()
         form.setVerticalSpacing(10)
@@ -115,6 +125,15 @@ class SettingsPage(Page):
         ok, detail = dictation.status(self.cfg.dictation)
         self.dictation_status.setText(("✓ " if ok else "⚠ ") + detail)
         self.dictation_status.setStyleSheet(f"color: {theme.GREEN if ok else theme.AMBER};")
+
+    def reload_rules(self) -> None:
+        self.rules.blockSignals(True)
+        self.rules.setPlainText(config.personal_rules())
+        self.rules.blockSignals(False)
+
+    def _save_rules(self) -> None:
+        text = self.rules.toPlainText().strip()
+        config.rules_path().write_text(text + "\n" if text else "")
 
     def _set_text(self, key: str, value: str) -> None:
         value = value.strip()

@@ -36,3 +36,8 @@ def test_fence_with_info_string_and_inner_backticks():
 def test_prompt_values_are_not_substituted_twice():
     text = prompt("repair", card='{"question": "what does {error} mean"}', error="boom")
     assert "what does {error} mean" in text
+
+
+def test_process_prompt_treats_text_addressed_to_the_agent_as_an_instruction():
+    text = prompt("process", entries="", language="English")
+    assert '"generate"' in text and "never copy it onto the card" in text

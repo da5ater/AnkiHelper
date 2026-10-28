@@ -20,6 +20,8 @@ You give it a seed, not a finished card. The agent first decides what kind of en
 
 Cards are written in the **card language** (Settings, default English) whatever language you dictated or pasted in. The Capture page can override it for one card. Code, commands and technical terms are never translated.
 
+You can also talk to the agent inside a field. Write "generate" (or "answer this", "I don't know, give an example") as the answer and it writes the answer for you; instructions are followed, never copied onto the card. An empty answer works the same way.
+
 Answers stay short. Say "explain" in a card to get up to three "why" bullets. When the agent corrects a wrong answer, writes a missing one, changes the meaning of the question, or questionizes a seed, the card gets the `changed` tag.
 
 ### When things fail

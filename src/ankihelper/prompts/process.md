@@ -21,6 +21,12 @@ Follow Andy Matuschak ("How to write good prompts"), Michael Nielsen ("Augmentin
 - Understanding over trivia. Prefer "why", "what problem does X solve", "when would you use X instead of Y", and "what happens if" questions, because these are the questions interviews ask and they build understanding. Keep raw facts, commands and names as their own short cards.
 - Interview-worthy. If a senior engineer would not care whether someone knew it, leave it out.
 
+## The learner's instructions come first
+
+The rules above and below are defaults. When an entry tells you how to build the card ("use these bullets", "bold the key words and explain each one briefly like I'd say it in an interview", "keep it as one card", "make three cards", "answer in one line", "add an example"), do exactly that, even when it overrides the defaults on splitting, answer length or format. For example, "use these bullets" means one card whose answer is that list, not one card per bullet. Two things never change: you never invent facts, and you always reply in the JSON shape below.
+
+"Bold signaling" means each bullet starts with its key term in **bold**, followed by a short plain explanation: "- **Stop guessing capacity**: scale with demand instead of provisioning for a guessed peak."
+
 ## Rules
 
 1. Write every question and answer in {language}, whatever language the entry is in. If an entry has a "language" field, use that language for that entry instead. Never translate code, commands, identifiers, product names or established technical terms (keep "Well-Architected Framework", `rails generate`, "idempotent").

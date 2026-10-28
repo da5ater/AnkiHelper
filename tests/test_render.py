@@ -41,3 +41,17 @@ def test_prompt_values_are_not_substituted_twice():
 def test_process_prompt_treats_text_addressed_to_the_agent_as_an_instruction():
     text = prompt("process", entries="", language="English")
     assert '"generate"' in text and "never copy it onto the card" in text
+
+
+def test_bold_signaling_bullets_render_as_a_list_with_bold_terms():
+    html = render.to_html("- **Stop guessing capacity**: scale with demand.\n- **Game days**: rehearse failures.")
+    assert html == (
+        "<ul><li><strong>Stop guessing capacity</strong>: scale with demand.</li>"
+        "<li><strong>Game days</strong>: rehearse failures.</li></ul>"
+    )
+
+
+def test_learner_instructions_override_the_default_card_rules():
+    text = prompt("process", entries="", language="English")
+    assert "The learner's instructions come first" in text
+    assert "not one card per bullet" in text

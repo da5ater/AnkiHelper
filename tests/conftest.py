@@ -47,6 +47,12 @@ class FakeAnki:
             return [{"name": n, "type": 1 if n == "Cloze" else 0} for n in params["modelNames"]]
         if action == "findCards":
             return []
+        if action == "findNotes":
+            return list(range(1, len(self.notes) + 1))
+        if action == "removeTags":
+            for i in params["notes"]:
+                self.notes[i - 1]["tags"] = [t for t in self.notes[i - 1]["tags"] if t not in params["tags"].split()]
+            return None
         if action == "updateNoteFields":
             self.notes[params["note"]["id"] - 1]["fields"].update(params["note"]["fields"])
             return None

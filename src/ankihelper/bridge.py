@@ -12,7 +12,7 @@ from datetime import datetime
 
 from filelock import FileLock
 
-from . import agents, config, learning, notes, render
+from . import agents, config, jobs, learning, notes, render
 from .batch import Card, card_html
 from .config import Config
 from .inbox import Entry
@@ -22,7 +22,12 @@ RECENT_WRITE_SECONDS = 120
 CLOZE = 1
 
 
+SOURCE_BLOCK = re.compile(r"Source<br>((?:<img\b[^>]*>)+)")
+"""The "Source" caption AnkiHelper puts above a read picture; the picture stays, the caption is not card text."""
+
+
 def text_of(fragment: str) -> str:
+    fragment = SOURCE_BLOCK.sub("", fragment)
     fragment = re.sub(r"(?i)<br\s*/?>|</(p|div|li|pre|tr)>", "\n", fragment)
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
 
@@ -31,7 +36,7 @@ def _images_in(fragment: str) -> str:
     return "".join(re.findall(r"<img\b[^>]*>", fragment))
 
 
-def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, feedback: str) -> dict:
+def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, feedback: str, tags: list[str] | None = None) -> dict:
     """New question and answer HTML for a note, from the learner's feedback.
 
     The card as it is in Anki now is what gets rewritten, so hand edits and added pictures survive;
@@ -64,7 +69,38 @@ def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, fee
             "after": {"question": card.question, "answer": card.answer},
         }
     )
-    return {"front": front, "back": back, "add_tags": [FIXED_TAG], "bloom": card.bloom}
+    reply = {"front": front, "back": back, "add_tags": [FIXED_TAG], "bloom": card.bloom}
+    job = jobs.job_for_note(tags or [])
+    if job:
+        before = _before_job(note_id, job["id"])
+        new_rule = jobs.refine(cfg, job, before or current, current, feedback)
+        if new_rule:
+            reply["rule_updated"] = new_rule
+    return reply
+
+
+def _before_job(note_id: int, job_id: str) -> dict | None:
+    path = config.data_dir() / "backups.jsonl"
+    if not path.exists():
+        return None
+    for line in path.read_text().splitlines():
+        item = json.loads(line) if line.strip() else {}
+        if item.get("note_id") == note_id and item.get("job") == job_id:
+            values = list(item["fields"].values())
+            return {"question": text_of(values[0]), "answer": text_of(values[1])}
+    return None
+
+
+def optimize(cfg: Config, note_id: int, question_html: str, answer_html: str, deck: str) -> Entry:
+    """Turn an existing Anki card into an inbox entry so Preview can offer optimized versions of it."""
+    root = cfg.root_deck + "::"
+    topic = deck[len(root) :] if deck.startswith(root) else deck
+    entry = Entry.new(text_of(question_html), text_of(answer_html), topic)
+    entry.source_note, entry.deck = note_id, deck
+    from . import inbox
+
+    inbox.append(entry)
+    return entry
 
 
 def _writes_path():
@@ -129,7 +165,7 @@ def fix_flagged(cfg: Config, anki) -> tuple[int, list[str]]:
                 unflag(item)
                 continue
             (q_name, q), (a_name, a) = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"])
-            result = rewrite(cfg, note_id, q["value"], a["value"], item["feedback"])
+            result = rewrite(cfg, note_id, q["value"], a["value"], item["feedback"], info.get("tags"))
             note_written(note_id)
             anki.update_fields(note_id, {q_name: result["front"], a_name: result["back"]})
             anki.add_tags([note_id], result["add_tags"])

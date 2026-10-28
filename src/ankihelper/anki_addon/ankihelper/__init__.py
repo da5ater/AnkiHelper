@@ -210,6 +210,7 @@ class FixDialog(QDialog):
             "question_html": self.note[sides[0]],
             "answer_html": self.note[sides[1]],
             "feedback": feedback,
+            "tags": list(self.note.tags),
         }
         call("fix", payload, self._fixed)
 
@@ -230,7 +231,8 @@ class FixDialog(QDialog):
             self.note.id,
             {sides[0]: reply["front"], sides[1]: reply["back"]},
             reply.get("add_tags", []),
-            "AnkiHelper rewrote the card. Edit → Undo brings the old one back.",
+            "AnkiHelper rewrote the card. Edit → Undo brings the old one back."
+            + (f"<br>Rule updated from your reasoning: {reply['rule_updated']}" if reply.get("rule_updated") else ""),
         )
         self.accept()
 
@@ -333,6 +335,21 @@ def _exists(note_id: int) -> bool:
         return True
     except Exception:  # deleted since it was made
         return False
+
+
+def optimize_card() -> None:
+    note = _current_note()
+    if not note:
+        return
+    sides = _sides(note)
+    if not sides:
+        tooltip(UNSUPPORTED)
+        return
+    card_ids = note.card_ids()
+    deck = mw.col.decks.name(mw.col.get_card(card_ids[0]).did) if card_ids else ""
+    payload = {"note_id": note.id, "question_html": note[sides[0]], "answer_html": note[sides[1]], "deck": deck}
+    tooltip("Opening AnkiHelper's preview with optimized versions of this card…")
+    call("optimize", payload, lambda reply: showWarning(reply["error"]) if "error" in reply else None)
 
 
 def show_history() -> None:
@@ -454,6 +471,7 @@ def _context_menu(reviewer, menu: QMenu) -> None:
     menu.addSeparator()
     menu.addAction("AnkiHelper: fix this card  (F)", lambda: fix_card(later=False))
     menu.addAction("AnkiHelper: fix in next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("AnkiHelper: optimize this card", optimize_card)
     menu.addAction("AnkiHelper: history of this card", show_history)
 
 
@@ -508,6 +526,7 @@ def _review_menu() -> None:
     menu = QMenu(mw)
     menu.addAction("Fix this card now  (F)", lambda: fix_card(later=False))
     menu.addAction("Fix it in the next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("✨ Optimize this card", optimize_card)
     menu.addAction("History of this card", show_history)
     menu.exec(QCursor.pos())
 
@@ -523,6 +542,7 @@ def _menu() -> None:
     menu = QMenu("AnkiHelper", mw)
     for title, handler in (
         ("Fix current card  (F)", lambda: fix_card(later=False)),
+        ("Optimize current card", optimize_card),
         ("History of current card", show_history),
         ("Open AnkiHelper", open_app),
         ("Run a batch now", lambda: _detached("batch")),
@@ -533,7 +553,34 @@ def _menu() -> None:
     mw.form.menuTools.addMenu(menu)
 
 
+WORK_EVERY_MS = 90_000
+"""How often the background rule updates take their next batch of cards while Anki is open."""
+_working = False
+
+
+def _work() -> None:
+    global _working
+    if _working or not mw.col:
+        return
+    _working = True
+
+    def finished(_reply) -> None:
+        global _working
+        _working = False
+
+    call("work", {}, finished)
+
+
+def _start_worker() -> None:
+    from aqt.qt import QTimer
+
+    timer = QTimer(mw)
+    timer.timeout.connect(_work)
+    timer.start(WORK_EVERY_MS)
+
+
 gui_hooks.main_window_did_init.append(_menu)
+gui_hooks.main_window_did_init.append(_start_worker)
 gui_hooks.top_toolbar_did_init_links.append(_toolbar)
 gui_hooks.reviewer_did_show_question.append(_question_shown)
 gui_hooks.reviewer_will_end.append(lambda: _on_question_end())

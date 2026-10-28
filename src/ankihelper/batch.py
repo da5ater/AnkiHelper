@@ -100,7 +100,9 @@ class Summary:
         return text
 
 
-def deck_for(cfg: Config, topic: str) -> str:
+def deck_for(cfg: Config, topic: str, deck: str | None = None) -> str:
+    if deck:
+        return deck
     topic = topic.strip().strip(":")
     return f"{cfg.root_deck}::{topic}" if topic else cfg.root_deck
 
@@ -165,6 +167,7 @@ def clean(
                     **({"language": e.language} if e.language else {}),
                     "question_images": len(e.images_for("question", "show")),
                     "answer_images": len(e.images_for("answer", "show")),
+                    **({"existing_card": True} if e.source_note else {}),
                     "question_read_images": read["question"],
                     "answer_read_images": read["answer"],
                     **({"revision": revisions[e.id]} if revisions and e.id in revisions else {}),
@@ -204,6 +207,22 @@ def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) ->
 def _store_images(anki: AnkiConnect, entry: Entry) -> None:
     for image in entry.images or []:
         anki.store_media(image["file"], str(config.media_dir() / image["file"]))
+
+
+def replace_source(anki: AnkiConnect, entry: Entry, card: Card) -> str:
+    """Rewrite the card being optimized in place, keeping its review history."""
+    from . import bridge
+
+    [info] = anki.notes_info([entry.source_note])
+    if not info:
+        raise AnkiError(f"the card being optimized (note {entry.source_note}) was deleted")
+    (q_name, q), (a_name, a) = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"])
+    front, back = card_html(card, entry)
+    bridge.note_written(entry.source_note)
+    anki.update_fields(entry.source_note, {q_name: front + bridge._images_in(q["value"]), a_name: back + bridge._images_in(a["value"])})
+    anki.add_tags([entry.source_note], anki_tags(card, entry))
+    notes.record(entry.source_note, entry, card)
+    return "imported"
 
 
 def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: str, card: Card) -> tuple[str, Card]:
@@ -295,7 +314,7 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
             if entry.id not in cards:
                 summary.failed[entry.id] = "the agent returned no card for this entry"
                 continue
-            deck = deck_for(cfg, entry.topic)
+            deck = deck_for(cfg, entry.topic, entry.deck)
             entry_cards = cards[entry.id]
             results = []
             try:
@@ -303,8 +322,11 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
                     anki.create_deck(deck)
                     known_decks.add(deck)
                 _store_images(anki, entry)
-                for card in entry_cards:
-                    outcome, final = import_card(anki, cfg, agent, entry, deck, card)
+                for index, card in enumerate(entry_cards):
+                    if index == 0 and entry.source_note and entry.replace_source:
+                        outcome, final = replace_source(anki, entry, card), card
+                    else:
+                        outcome, final = import_card(anki, cfg, agent, entry, deck, card)
                     results.append({"outcome": outcome, "card": asdict(final)})
             except (AnkiError, agents.AgentError, AnkiUnreachable) as error:
                 summary.failed[entry.id] = str(error)

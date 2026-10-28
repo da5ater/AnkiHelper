@@ -22,6 +22,12 @@ class Entry:
     """Cleaned cards still waiting to be imported, so a retry does not ask the agent again."""
     language: str | None = None
     """Language the cards should be written in; None means the configured default."""
+    source_note: int | None = None
+    """An existing Anki note this entry optimizes (from the add-on's Optimize), or None for a new note."""
+    deck: str | None = None
+    """Full deck name when it is not under the root deck (an optimized card stays in its own deck)."""
+    replace_source: bool = False
+    """Rewrite the source note in place with the first accepted card instead of leaving it next to the new ones."""
     images: list[dict] | None = None
     """Pasted pictures: {"file": name in config.media_dir(), "field": "question" | "answer", "mode": "show" | "read"}.
     "show" pictures go on the card as visuals; "read" pictures hold the text the agent turns into the card."""
@@ -65,13 +71,14 @@ def read_all() -> list[Entry]:
         return _read_unlocked()
 
 
-def approve(entry_id: str, cards: list[dict]) -> None:
+def approve(entry_id: str, cards: list[dict], replace_source: bool = False) -> None:
     """Lock in reviewed cards so the batch imports them as they are."""
     with _lock():
         entries = _read_unlocked()
         for entry in entries:
             if entry.id == entry_id:
                 entry.cards, entry.error = cards, None
+                entry.replace_source = replace_source and entry.source_note is not None
         _write_unlocked(entries)
 
 

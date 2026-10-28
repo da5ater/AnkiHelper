@@ -4,6 +4,7 @@ from dataclasses import asdict
 from PySide6.QtCore import QPoint, QProcess, QProcessEnvironment, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -327,6 +328,7 @@ class ReviewPage(Page):
     back = Signal()
     changed = Signal()
     saved = Signal(str)
+    rule_saved = Signal(str)
 
     def __init__(self, cfg: Config):
         super().__init__("Preview", "Your note and the cards it becomes. Accept, change or remove each one.", theme.VIOLET)
@@ -376,6 +378,10 @@ class ReviewPage(Page):
         self.log.hide()
         self.layout_.addWidget(self.log)
 
+        self.replace_box = QCheckBox("Replace the original card with the first accepted card (keeps its review history)")
+        self.replace_box.hide()
+        self.layout_.addWidget(self.replace_box)
+
         bar = QHBoxLayout()
         self.status = label("", "muted", wrap=True)
         self.status.setOpenExternalLinks(True)
@@ -403,6 +409,8 @@ class ReviewPage(Page):
     def open(self, entry: inbox.Entry) -> None:
         self.rule_panel.hide()
         self.log.hide()
+        self.replace_box.setVisible(entry.source_note is not None)
+        self.replace_box.setChecked(entry.replace_source)
         if entry.cards:
             saved = [review.Slot(batch.Card(**card), review.ACCEPTED) for card in entry.cards]
             self.review = review.Review(entry, saved)
@@ -510,12 +518,12 @@ class ReviewPage(Page):
 
     def keep(self) -> None:
         cards = self.review.accepted()
-        inbox.approve(self.review.entry.id, [asdict(c) for c in cards])
+        inbox.approve(self.review.entry.id, [asdict(c) for c in cards], self.replace_box.isChecked())
         self.changed.emit()
         self.saved.emit(f"✓ Saved {len(cards)} card{'s' if len(cards) != 1 else ''} for “{self.review.entry.question[:60]}”. The next batch imports exactly these.")
 
     def import_now(self) -> None:
-        inbox.approve(self.review.entry.id, [asdict(c) for c in self.review.accepted()])
+        inbox.approve(self.review.entry.id, [asdict(c) for c in self.review.accepted()], self.replace_box.isChecked())
         entry_id = self.review.entry.id
 
         def done(summary) -> None:
@@ -542,7 +550,8 @@ class ReviewPage(Page):
         review.save_rule(rule)
         self.rule_panel.hide()
         self.changed.emit()
-        self._say("📌 Rule saved. Every future card follows it (Settings → Personal rules).", theme.GREEN)
+        self._say("📌 Rule saved. Every future card follows it. Settings → Rule updates can apply it to your existing cards.", theme.GREEN)
+        self.rule_saved.emit(rule)
         if propose:
             self._propose(rule)
 

@@ -4,8 +4,11 @@ This add-on is the Anki side of <a href="https://github.com/da5ater/AnkiHelper">
 
 <b>What the add-on does</b>
 <ul>
+<li>A <b>✎ AnkiHelper</b> button on the review screen, next to Edit: fix this card now, fix it in the next batch, or see its history.</li>
 <li><b>F</b> on the review screen: say what's wrong with the card ("too long", "ask why instead", "add an example") and it is rewritten in place. Edit → Undo brings the old card back.</li>
 <li><b>Shift+F</b>: flag the card red and keep studying; the next AnkiHelper batch rewrites it.</li>
+<li><b>✨ Optimize this card</b>: send a card you already have to AnkiHelper's preview to get a cleaner version plus deeper cards (why, when, scenario), and pick the ones you want.</li>
+<li><b>Rule updates</b>: apply a rule to the cards you already have, in the background, 10 cards at a time, with undo. Push back on an updated card and the rule is reworded from your reasoning.</li>
 <li><b>History of this card</b> (right-click while reviewing): your original note and pictures, the other cards made from it, and the alternative versions you were offered, with one click to switch.</li>
 <li><b>Learns from you.</b> It notices the cards you edit and delete and suggests rules (for example "keep answers to one line") that every future card follows. Nothing becomes a rule without your OK.</li>
 <li>An <b>AnkiHelper</b> button in the top bar opens the app: inbox, card preview and settings.</li>
@@ -18,6 +21,6 @@ This add-on is the Anki side of <a href="https://github.com/da5ater/AnkiHelper">
 <li>One AI agent CLI (Claude Code, Codex, Gemini CLI or OpenCode), logged in.</li>
 </ul>
 
-Fix and History work on any card with a question and an answer field; cloze cards are not supported yet. Linux is supported today; macOS and Windows support in the app is written but untested.
+Fixing works on cards with exactly two fields (a question and an answer); cloze and image occlusion cards are never rewritten. Linux is supported today; macOS and Windows support in the app is written but untested.
 
 Source, issues and feedback: <a href="https://github.com/da5ater/AnkiHelper">github.com/da5ater/AnkiHelper</a>

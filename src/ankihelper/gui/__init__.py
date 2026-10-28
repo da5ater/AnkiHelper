@@ -68,6 +68,7 @@ class MainWindow(QWidget):
         self.review.saved.connect(lambda text: (self.go("inbox"), self.inbox.flash(text)))
         self.review.changed.connect(self._refresh_badges)
         self.review.changed.connect(self.settings.reload_rules)
+        self.review.rule_saved.connect(self.settings.prefill_rule)
         self.settings.changed.connect(self._settings_changed)
         self.setup.idle.connect(self._maybe_quit)
 
@@ -129,6 +130,7 @@ class MainWindow(QWidget):
     def go(self, name: str) -> None:
         if name == "settings":
             self.settings.reload_rules()
+            self.settings.reload_jobs()
         self.nav_buttons["inbox" if name == "review" else name].setChecked(True)
         self.stack.setCurrentWidget(self.pages[name])
         self.pages[name].shown()
@@ -168,9 +170,14 @@ class MainWindow(QWidget):
         event.accept()
 
 
-def run(page: str, close_after_save: bool = False) -> int:
+def run(page: str, close_after_save: bool = False, entry_id: str | None = None) -> int:
+    from .. import inbox
+
     app = make_app()
-    window = MainWindow(Config.load(), page, close_after_save)
+    entry = next((e for e in inbox.read_all() if e.id == entry_id), None) if entry_id else None
+    window = MainWindow(Config.load(), "inbox" if page == "review" else page, close_after_save)
+    if entry:
+        window._preview(entry)
     window.show()
     window.raise_()
     window.activateWindow()

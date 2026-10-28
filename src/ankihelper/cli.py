@@ -57,7 +57,27 @@ def cmd_anki(args) -> int:
     cfg = Config.load()
     try:
         if args.action == "fix":
-            reply = bridge.rewrite(cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["feedback"])
+            reply = bridge.rewrite(
+                cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["feedback"], request.get("tags")
+            )
+        elif args.action == "optimize":
+            entry = bridge.optimize(cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request.get("deck", ""))
+            subprocess.Popen(
+                [sys.executable, "-m", "ankihelper", "setup", "review", "--entry", entry.id],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            reply = {"entry_id": entry.id}
+        elif args.action == "work":
+            from . import jobs
+
+            reply = jobs.run_batch(cfg, AnkiConnect(cfg.anki_url)) or {"idle": True}
+        elif args.action == "jobs":
+            from . import jobs
+
+            reply = {"active": len(jobs.active())}
         elif args.action == "flag":
             bridge.flag(int(request["note_id"]), request.get("feedback", ""))
             reply = {"ok": True}
@@ -121,13 +141,13 @@ def cmd_capture(args) -> int:
 
 
 def cmd_setup(args) -> int:
-    return gui_page(args.page)
+    return gui_page(args.page, args.entry)
 
 
-def gui_page(page: str) -> int:
+def gui_page(page: str, entry_id: str | None = None) -> int:
     from . import gui
 
-    return gui.run(page)
+    return gui.run(page, entry_id=entry_id)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,11 +160,14 @@ def main(argv: list[str] | None = None) -> int:
     batch_parser.add_argument("--agent", choices=list(agents.AGENTS), help="override the default agent for this run")
     batch_parser.set_defaults(func=cmd_batch)
     window = sub.add_parser("setup", help="open the window (setup page by default)")
-    window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "setup", "settings"])
+    window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "setup", "settings", "review"])
+    window.add_argument("--entry", help="with the review page: the inbox entry to preview")
     window.set_defaults(func=cmd_setup)
     sub.add_parser("doctor", help="print the setup checklist").set_defaults(func=cmd_doctor)
     anki_parser = sub.add_parser("anki", help="requests from the AnkiHelper add-on inside Anki (JSON on stdin)")
-    anki_parser.add_argument("action", choices=["fix", "flag", "event", "written", "history", "use-version"])
+    anki_parser.add_argument(
+        "action", choices=["fix", "flag", "event", "written", "history", "use-version", "optimize", "work", "jobs"]
+    )
     anki_parser.set_defaults(func=cmd_anki)
     sub.add_parser("learn", help="suggest rules from your recent edits and deletions in Anki").set_defaults(func=cmd_learn)
     sub.add_parser("install-addon", help="install the AnkiHelper add-on into Anki").set_defaults(func=cmd_install_addon)

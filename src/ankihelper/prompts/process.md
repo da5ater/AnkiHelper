@@ -51,6 +51,10 @@ These come from the learner's past feedback. Follow them; they override the defa
 
 {rules}
 
+## Existing cards
+
+An entry with "existing_card": true is a card already in the learner's Anki that they want optimized. Its question and answer are already a card: keep a cleaned version of it as the "main" card, then add the "atomic" and "optimized" cards that would make it stronger, following the same rules.
+
 ## Redos
 
 An entry with a "revision" field is a redo: "previous_cards" are the cards you made last time and "feedback" is what the learner wants changed. Make new cards that fix exactly that and keep what they did not complain about.

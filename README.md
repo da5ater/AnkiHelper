@@ -48,8 +48,15 @@ AnkiHelper also lives inside Anki, so you can fix cards at the moment you meet t
 
 - **✎ AnkiHelper** on the review screen, next to Anki's Edit button, opens a menu: fix this card now, fix it in the next batch, or see its history. **AnkiHelper** in Anki's top bar opens the app.
 - **F** on the review screen opens "What should change in this card?". **Fix now** rewrites the card in place in about 10 seconds (Edit → Undo brings the old one back). **Shift+F**, or **Fix in next batch**, flags the card red and the next `ankihelper batch` rewrites it, so you keep studying. Both work on any card with a question and an answer field, not only the ones AnkiHelper made; cloze cards are not supported yet.
+- **✨ Optimize this card** (in the ✎ AnkiHelper menu) sends a card you already have to AnkiHelper's Preview canvas: a cleaned version plus atomic and higher-level cards and versions, exactly as for a new note. Accepted cards are added next to the original in its own deck; tick **Replace the original card** to rewrite the original in place instead, which keeps its review history.
 - **History of this card** (right-click on the review screen, or Tools → AnkiHelper) shows your original note and pictures, the other cards made from the same note, and the versions you were offered in Preview, with **Use this version** to switch.
 - **It learns from what you do.** The add-on quietly records cards you edit by hand and cards you delete, across your whole collection. Every 10 events, and at the end of each batch, the agent looks for patterns ("deleted 5 of 7 create-level cards", "always shortens answers") and suggests a rule. Suggestions appear in Settings under Personal rules, where you add or dismiss them. Nothing becomes a rule without your OK.
+
+### Applying a rule to cards you already have
+
+Settings → **Rule updates** applies one of your rules to existing cards: the cards AnkiHelper made, everything in your root deck, or all cards. It runs in the background while Anki is open (the add-on takes one batch every 90 seconds), 10 cards per agent call, so the agent judges each card on its own instead of juggling hundreds. Only cards the rule actually applies to change, each change is backed up first, progress is saved after every batch so it resumes exactly where it stopped, and **Undo all** puts every card back. Changed cards are tagged `ah::rule::<job>`.
+
+When you meet an updated card in Anki and push back with **F** ("no, for commands I need the full command, because…"), AnkiHelper rewords the rule from your reasoning, keeps going with the new wording, and rechecks the cards it already changed.
 
 ### Card groups and tags
 
@@ -64,6 +71,7 @@ Every card AnkiHelper makes is tagged so a whole note's cards stay findable toge
 | `ah::group::<strategy>` | A version you picked in Preview (scenario, reverse, ...) |
 | `ah::bloom::<level>` | Bloom's taxonomy level |
 | `ah::fixed` | Rewritten from your feedback in Anki |
+| `ah::rule::<job>` | Updated by a rule applied to existing cards |
 
 ## Install
 

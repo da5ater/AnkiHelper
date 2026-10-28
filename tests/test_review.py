@@ -68,3 +68,26 @@ def test_card_specific_feedback_gives_no_rule(monkeypatch):
     assert review.suggest_rule(Config(), session) is None
     monkeypatch.setattr(agents, "ask", lambda *a, **k: "Prefer why questions.\n")
     assert review.suggest_rule(Config(), session) == "Prefer why questions."
+
+
+def test_versions_offer_other_strategies_and_can_replace_or_extend_the_cards(monkeypatch):
+    entry = inbox.Entry.new("aws security pillar services", "iam, cloudtrail, guardduty", "DevOps::AWS")
+    session = review.Review(entry, [review.Round([review.batch.Card(entry.id, "Original?", "a", [], False)])])
+    reply = {
+        "versions": [
+            {"style": "Application / scenario", "why": "ties it to a real situation", "cards": [{"question": "Which service audits API calls?", "answer": "CloudTrail", "tags": ["aws"]}]},
+            {"style": "Reverse", "why": "recall the name from its job", "cards": [{"question": "q1", "answer": "a"}, {"question": "q2", "answer": "b"}]},
+            "garbage",
+        ]
+    }
+    seen = []
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or json.dumps(reply))
+
+    found = review.versions(Config(), session)
+
+    assert [v.style for v in found] == ["Application / scenario", "Reverse"]
+    assert all(c.source_id == entry.id for v in found for c in v.cards)
+    assert "Original?" in seen[0] and "Application / scenario" in seen[0]
+    assert [c.question for c in review.choose(session, found[0], add=False)] == ["Which service audits API calls?"]
+    assert [c.question for c in review.choose(session, found[1], add=True)] == ["Which service audits API calls?", "q1", "q2"]
+    assert session.rounds[-2].feedback == "picked the Reverse version in addition"

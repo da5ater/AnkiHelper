@@ -46,6 +46,51 @@ def generate(cfg: Config, review: Review, feedback: str = "") -> list[batch.Card
     return review.cards
 
 
+@dataclass
+class Version:
+    style: str
+    why: str
+    cards: list[batch.Card]
+
+
+def versions(cfg: Config, review: Review) -> list[Version]:
+    """Alternative ways to ask the same knowledge, each built on a different prompt-writing strategy."""
+    entry = review.entry
+    text = agents.prompt(
+        "versions",
+        language=entry.language or cfg.language,
+        rules=config.personal_rules() or "(none yet)",
+        entry=json.dumps({"id": entry.id, "question": entry.question, "answer": entry.answer, "topic": entry.topic}, ensure_ascii=False),
+        cards=json.dumps([asdict(c) for c in review.cards], ensure_ascii=False),
+    )
+    images = [str(config.media_dir() / name) for field in ("question", "answer") for name in entry.images_for(field, "read")]
+    reply = agents.extract_json(agents.ask(cfg.agent, text, images=images))
+    raw_versions = reply.get("versions")
+    if not isinstance(raw_versions, list) or not raw_versions:
+        raise agents.AgentError("The agent returned no versions")
+    found = []
+    for raw in raw_versions:
+        if not isinstance(raw, dict) or not isinstance(raw.get("cards"), list):
+            continue
+        cards = [batch.Card.parse({**c, "source_id": entry.id}) for c in raw["cards"]][: batch.MAX_CARDS_PER_ENTRY]
+        if len(cards) > 1:
+            for card in cards:
+                card.tags.append(f"seed-{entry.id}")
+        if cards:
+            found.append(Version(str(raw.get("style", "Alternative")), str(raw.get("why", "")), cards))
+    if not found:
+        raise agents.AgentError("The agent's versions had no usable cards")
+    return found
+
+
+def choose(review: Review, version: Version, add: bool) -> list[batch.Card]:
+    """Make a version the current cards, or add its cards to the current ones."""
+    review.rounds[-1].feedback = f"picked the {version.style} version" + (" in addition" if add else "")
+    cards = (review.cards + version.cards if add else version.cards)[: batch.MAX_CARDS_PER_ENTRY]
+    review.rounds.append(Round(cards))
+    return cards
+
+
 def suggest_rule(cfg: Config, review: Review) -> str | None:
     history = "\n\n".join(
         f"Round {n}:\n" + json.dumps([asdict(c) for c in r.cards], ensure_ascii=False) + (f"\nFeedback: {r.feedback}" if r.feedback else "")
@@ -88,6 +133,19 @@ def pr_command(cfg: Config, rule: str, push: bool = True) -> tuple[list[str], Pa
     last_line = "the pull request URL" if push else "the commit hash"
     text = agents.prompt("pr", branch=branch, rule=rule, push_step=push_step, last_line=last_line)
     return agents.get(cfg.agent).fix(text), worktree
+
+
+def github_env(cfg: Config) -> dict[str, str]:
+    """GH_TOKEN for the configured account, so gh and git push act as it without changing the active gh login."""
+    done = subprocess.run(
+        ["gh", "auth", "token", "-h", "github.com", "-u", cfg.github_account], capture_output=True, text=True, timeout=15
+    )
+    token = done.stdout.strip()
+    if done.returncode != 0 or not token:
+        raise agents.AgentError(
+            f"gh has no login for {cfg.github_account}; run `gh auth login` and add that account first"
+        )
+    return {"GH_TOKEN": token}
 
 
 def remove_worktree(worktree: Path) -> None:

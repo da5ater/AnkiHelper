@@ -1,7 +1,7 @@
 import re
 from dataclasses import asdict
 
-from PySide6.QtCore import QProcess, Qt, Signal
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPlainTextEdit, QPushButton, QTextBrowser, QVBoxLayout
 
 from .. import batch, config, inbox, review
@@ -22,6 +22,7 @@ class ReviewPage(Page):
         super().__init__("Preview", "See the cards before they reach Anki. Redo them with feedback until they're right.", theme.VIOLET)
         self.cfg = cfg
         self.review: review.Review | None = None
+        self.versions: list[review.Version] = []
         self.busy = False
         self.process: QProcess | None = None
         self.worktree = None
@@ -36,7 +37,8 @@ class ReviewPage(Page):
 
         self.preview = QTextBrowser()
         self.preview.setObjectName("preview")
-        self.preview.setOpenExternalLinks(True)
+        self.preview.setOpenLinks(False)
+        self.preview.anchorClicked.connect(self._anchor)
         self.preview.setSearchPaths([str(config.media_dir())])
         self.layout_.addWidget(self.preview, 1)
 
@@ -50,6 +52,9 @@ class ReviewPage(Page):
         actions = QHBoxLayout()
         self.redo_button = QPushButton("↻  Redo with feedback")
         self.redo_button.clicked.connect(self.redo)
+        self.versions_button = QPushButton("✨  Other versions")
+        self.versions_button.setToolTip("Other ways to ask this, each using a different strategy for remembering")
+        self.versions_button.clicked.connect(self.show_versions)
         self.rule_button = QPushButton("📌  Make this a rule")
         self.rule_button.clicked.connect(self.suggest_rule)
         self.import_button = QPushButton("⬆  Import now")
@@ -57,7 +62,7 @@ class ReviewPage(Page):
         self.keep_button = QPushButton("✓  Keep these cards")
         self.keep_button.setObjectName("primary")
         self.keep_button.clicked.connect(self.keep)
-        for button in (self.redo_button, self.rule_button):
+        for button in (self.redo_button, self.versions_button, self.rule_button):
             actions.addWidget(button)
         actions.addStretch()
         actions.addWidget(self.import_button)
@@ -92,6 +97,7 @@ class ReviewPage(Page):
 
     def open(self, entry: inbox.Entry) -> None:
         self.review = review.Review(entry)
+        self.versions = []
         self.note.setText(f"<b>{entry.question or '(picture)'}</b><br>{entry.answer[:200]}")
         self.feedback.clear()
         self.rule_panel.hide()
@@ -102,7 +108,7 @@ class ReviewPage(Page):
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self.busy = busy
         has_cards = bool(self.review and self.review.cards)
-        for button in (self.redo_button, self.keep_button, self.import_button):
+        for button in (self.redo_button, self.versions_button, self.keep_button, self.import_button):
             button.setEnabled(not busy and has_cards)
         self.rule_button.setEnabled(not busy and bool(self.review and len(self.review.rounds) > 1))
         self.status.setText(message)
@@ -117,21 +123,57 @@ class ReviewPage(Page):
         self.status.setText(f"⚠ {error}")
         self.status.setStyleSheet(f"color: {theme.RED};")
 
-    def _show_cards(self) -> None:
+    def _cards_html(self, cards, caption: str) -> str:
         parts = []
-        cards = self.review.cards
         for n, c in enumerate(cards, start=1):
             front, back = batch.card_html(c, self.review.entry)
             parts.append(
-                f'<p style="color:{theme.FAINT}; font-size:11px; font-weight:700;">CARD {n} OF {len(cards)}'
+                f'<p style="color:{theme.FAINT}; font-size:11px; font-weight:700;">{caption}CARD {n} OF {len(cards)}'
                 f'{" · CHANGED" if c.changed else ""} · {" ".join(c.tags)}</p>'
                 f'<table width="100%" cellpadding="14" cellspacing="0" style="background:{theme.SURFACE_HI}; color:{theme.TEXT};">'
                 f'<tr><td>{front}</td></tr>'
                 f'<tr><td style="border-top:1px solid {theme.BORDER};">{back}</td></tr></table><br>'
             )
-        self.preview.setHtml("".join(parts))
+        return "".join(parts)
+
+    def _show_cards(self) -> None:
+        cards = self.review.cards
+        html = self._cards_html(cards, "")
+        if self.versions:
+            html += '<a name="versions"></a>'
+        for n, version in enumerate(self.versions):
+            html += (
+                f'<hr style="border:0; border-top:1px solid {theme.BORDER};">'
+                f'<p><span style="color:{theme.CYAN}; font-size:15px; font-weight:800;">✨ {version.style}</span><br>'
+                f'<span style="color:{theme.MUTED};">{version.why}</span><br>'
+                f'<a href="use:{n}" style="color:{theme.PINK}; font-weight:700;">Use this version</a>'
+                f'&nbsp;&nbsp;·&nbsp;&nbsp;<a href="add:{n}" style="color:{theme.VIOLET}; font-weight:700;">Add to my cards</a></p>'
+                + self._cards_html(version.cards, f"{version.style.upper()} · ")
+            )
+        self.preview.setHtml(html)
+        if self.versions:
+            self.preview.scrollToAnchor("versions")
         rounds = len(self.review.rounds)
-        self._set_busy(False, f"{len(cards)} card(s)" + (f" · round {rounds}" if rounds > 1 else "") + ". Keep them, or say what to change.")
+        message = f"{len(cards)} card(s)" + (f" · round {rounds}" if rounds > 1 else "")
+        message += f". {len(self.versions)} other versions below." if self.versions else ". Keep them, or say what to change."
+        self._set_busy(False, message)
+
+    def show_versions(self) -> None:
+        def done(found) -> None:
+            self.versions = found
+            self._show_cards()
+
+        self._run(lambda: review.versions(self.cfg, self.review), "Writing other versions of this card…", done)
+
+    def _anchor(self, url) -> None:
+        action, _, index = url.toString().partition(":")
+        if action not in ("use", "add") or not index.isdigit() or int(index) >= len(self.versions):
+            return
+        version = self.versions[int(index)]
+        review.choose(self.review, version, add=action == "add")
+        self.versions = []
+        self._show_cards()
+        self.status.setText(f"Now using the {version.style} version. Keep it, redo it, or make your choice a rule.")
 
     def redo(self) -> None:
         feedback = self.feedback.toPlainText().strip()
@@ -185,15 +227,22 @@ class ReviewPage(Page):
 
     def _propose(self, rule: str) -> None:
         try:
+            env = review.github_env(self.cfg)
             cmd, self.worktree = review.pr_command(self.cfg, rule)
         except Exception as error:
             return self._failed(str(error))
         self.log.clear()
         self.log.show()
-        self.log.appendPlainText(f"{self.cfg.agent} is building the rule into AnkiHelper in {self.worktree} …")
+        self.log.appendPlainText(
+            f"{self.cfg.agent} is building the rule into AnkiHelper in {self.worktree}; the PR is opened as {self.cfg.github_account} …"
+        )
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.setWorkingDirectory(str(self.worktree))
+        environment = QProcessEnvironment.systemEnvironment()
+        for key, value in env.items():
+            environment.insert(key, value)
+        self.process.setProcessEnvironment(environment)
         self.process.readyReadStandardOutput.connect(
             lambda: self.log.appendPlainText(bytes(self.process.readAllStandardOutput()).decode(errors="replace").rstrip())
         )

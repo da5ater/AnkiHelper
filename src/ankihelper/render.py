@@ -81,9 +81,10 @@ def source_html(files: list[str]) -> str:
     if not files:
         return ""
     pictures = "".join(
-        f'<img src="{html.escape(name)}" style="max-width:45%; border-radius:6px; margin-right:6px">' for name in files
+        f'<img src="{html.escape(name)}" width="220" style="max-width:45%; border-radius:6px; margin-right:6px">'
+        for name in files
     )
     return (
-        '<div style="margin-top:1em; padding-top:0.5em; border-top:1px solid #8885; font-size:0.65em; opacity:0.75">'
+        '<div style="margin-top:1em; padding-top:0.5em; border-top:1px solid rgba(136, 136, 136, 0.33); font-size:0.65em; opacity:0.75">'
         f"Source<br>{pictures}</div>"
     )

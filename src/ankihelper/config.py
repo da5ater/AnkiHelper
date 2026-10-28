@@ -53,6 +53,8 @@ class Config:
     root_deck: str = "manual"
     note_type: str = "Basic+"
     language: str = "English"
+    github_account: str = "da5ater"
+    """gh account that pushes branches and opens PRs for proposed rules."""
     last_topic: str = ""
     last_language: str = ""
     known_topics: list[str] = field(default_factory=list)

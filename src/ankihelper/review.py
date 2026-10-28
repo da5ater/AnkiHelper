@@ -3,7 +3,7 @@
 import json
 import re
 import subprocess
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -50,7 +50,13 @@ class Review:
         return [slot.card for slot in self.slots]
 
     def accepted(self) -> list[batch.Card]:
-        return [slot.card for slot in self.slots if slot.status == ACCEPTED]
+        """Accepted cards, each carrying the versions it was shown next to so Anki's History can offer them."""
+        cards = []
+        for slot in self.slots:
+            if slot.status == ACCEPTED:
+                slot.card.versions = [asdict(v) for v in slot.versions if not v.added]
+                cards.append(slot.card)
+        return cards
 
     def kept(self) -> list[batch.Card]:
         return [slot.card for slot in self.slots if slot.status != REMOVED]
@@ -64,13 +70,6 @@ def _own(review: Review, cards: list[batch.Card]) -> list[batch.Card]:
     for card in cards:
         card.source_id = review.entry.id
     return cards
-
-
-def _retag(review: Review) -> None:
-    tag = f"seed-{review.entry.id}"
-    for card in review.cards:
-        if len(review.slots) > 1 and tag not in card.tags:
-            card.tags.append(tag)
 
 
 def _entry_json(entry: Entry) -> str:
@@ -119,7 +118,6 @@ def revise(cfg: Config, review: Review, index: int, feedback: str) -> list[batch
     cards = _own(review, [batch.Card.parse(c) for c in raw[:3]])
     review._record(f"card {index + 1} ({target.question}): {feedback}")
     review.slots[index : index + 1] = [Slot(card) for card in cards]
-    _retag(review)
     return cards
 
 
@@ -142,9 +140,10 @@ def versions(cfg: Config, review: Review, index: int) -> list[Version]:
     for raw in raw_versions:
         if not isinstance(raw, dict) or not isinstance(raw.get("cards"), list):
             continue
-        cards = _own(review, [batch.Card.parse({**c, "source_id": review.entry.id}) for c in raw["cards"][:3]])
+        style = str(raw.get("style", "Alternative"))
+        cards = _own(review, [batch.Card.parse({**c, "group": style}) for c in raw["cards"][:3]])
         if cards:
-            found.append(Version(str(raw.get("style", "Alternative")), str(raw.get("why", "")), cards))
+            found.append(Version(style, str(raw.get("why", "")), cards))
     if not found:
         raise agents.AgentError("The agent's versions had no usable cards")
     slot.versions = found
@@ -163,11 +162,10 @@ def use_version(review: Review, index: int, version: Version, add: bool) -> None
         review.slots[index + 1 : index + 1] = [Slot(card) for card in version.cards]
     else:
         others = [v for v in slot.versions if v is not version]
-        original = Version("Original", "The card you had before this swap.", [slot.card])
+        original = Version("Original", "The card you had before this swap.", [replace(slot.card, versions=[])])
         new = [Slot(card) for card in version.cards]
         new[0].versions = [original, *others]
         review.slots[index : index + 1] = new
-    _retag(review)
 
 
 def suggest_rule(cfg: Config, review: Review) -> str | None:

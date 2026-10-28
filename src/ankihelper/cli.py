@@ -1,4 +1,6 @@
 import argparse
+import json
+import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -36,7 +38,7 @@ def cmd_batch(args) -> int:
         log = _log_traceback("batch")
         platform.notify("AnkiHelper: batch crashed", f"{error}\nLog: {log}", offer_setup=True)
         raise
-    if summary.imported == summary.duplicates == summary.skipped == 0 and not summary.failed:
+    if not (summary.imported or summary.duplicates or summary.skipped or summary.failed or summary.fixed or summary.fix_errors or summary.suggestions):
         platform.notify("AnkiHelper", "Inbox is empty")
         print("Inbox is empty")
         return 0
@@ -45,6 +47,63 @@ def cmd_batch(args) -> int:
     for entry_id, error in summary.failed.items():
         print(f"  {entry_id}: {error}", file=sys.stderr)
     return 1 if summary.failed else 0
+
+
+def cmd_anki(args) -> int:
+    """JSON in on stdin, JSON out on stdout: the protocol the Anki add-on speaks."""
+    from . import bridge, learning
+
+    request = json.loads(sys.stdin.read() or "{}")
+    cfg = Config.load()
+    try:
+        if args.action == "fix":
+            reply = bridge.rewrite(cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["feedback"])
+        elif args.action == "flag":
+            bridge.flag(int(request["note_id"]), request.get("feedback", ""))
+            reply = {"ok": True}
+        elif args.action == "event":
+            learn_now = bridge.report(request)
+            if learn_now:
+                subprocess.Popen(
+                    [sys.executable, "-m", "ankihelper", "learn"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            reply = {"ok": True}
+        elif args.action == "written":
+            bridge.note_written(int(request["note_id"]))
+            reply = {"ok": True}
+        elif args.action == "history":
+            reply = bridge.history(int(request["note_id"]))
+        elif args.action == "use-version":
+            reply = bridge.use_version(int(request["note_id"]), request["card"])
+        else:
+            reply = {"error": f"unknown action {args.action}"}
+    except Exception as error:
+        _log_traceback("anki-bridge")
+        reply = {"error": str(error)}
+    print(json.dumps(reply, ensure_ascii=False))
+    return 0 if "error" not in reply else 1
+
+
+def cmd_learn(args) -> int:
+    from . import learning
+
+    found = learning.learn(Config.load())
+    if found:
+        platform.notify("AnkiHelper", f"{len(found)} new rule suggestion(s) from how you edit and delete cards. See Settings.")
+    for item in found:
+        print(f"- {item['rule']}  ({item['evidence']})")
+    return 0
+
+
+def cmd_install_addon(args) -> int:
+    from . import addon
+
+    print(addon.install())
+    return 0
 
 
 def cmd_doctor(args) -> int:
@@ -84,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
     window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "setup", "settings"])
     window.set_defaults(func=cmd_setup)
     sub.add_parser("doctor", help="print the setup checklist").set_defaults(func=cmd_doctor)
+    anki_parser = sub.add_parser("anki", help="requests from the AnkiHelper add-on inside Anki (JSON on stdin)")
+    anki_parser.add_argument("action", choices=["fix", "flag", "event", "written", "history", "use-version"])
+    anki_parser.set_defaults(func=cmd_anki)
+    sub.add_parser("learn", help="suggest rules from your recent edits and deletions in Anki").set_defaults(func=cmd_learn)
+    sub.add_parser("install-addon", help="install the AnkiHelper add-on into Anki").set_defaults(func=cmd_install_addon)
     args = parser.parse_args(argv)
     if not args.command:
         return gui_page("capture")

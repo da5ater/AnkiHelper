@@ -1,0 +1,378 @@
+"""AnkiHelper inside Anki: fix the card you are studying, see where it came from, and teach AnkiHelper
+from your edits and deletions.
+
+This runs in Anki's own Python, which does not have AnkiHelper's dependencies, so every request goes to
+the `ankihelper` command (`ankihelper anki <action>`, JSON on stdin and stdout) in a background thread.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+from html import unescape
+from pathlib import Path
+
+from anki import hooks
+from aqt import gui_hooks, mw
+from aqt.operations.card import set_card_flag
+from aqt.operations.note import update_note
+from aqt.qt import (
+    QAction,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTextBrowser,
+    QVBoxLayout,
+    Qt,
+)
+from aqt.utils import showWarning, tooltip
+
+ADDON_DIR = Path(__file__).parent
+CLOZE = 1
+RED_FLAG = 1
+_writing: set[int] = set()
+"""Notes AnkiHelper is saving right now, so the edit watcher does not report them as the learner's edits."""
+
+
+def _command() -> list[str]:
+    config_file = ADDON_DIR / "user_files" / "cli.json"
+    if config_file.exists():
+        return json.loads(config_file.read_text())["command"]
+    found = shutil.which("ankihelper") or str(Path.home() / ".local" / "bin" / "ankihelper")
+    return [found]
+
+
+def _clean_env() -> dict[str, str]:
+    """Anki's bundled Python and Qt leak into child processes through these and break AnkiHelper's own."""
+    env = dict(os.environ)
+    for key in list(env):
+        if key in ("PYTHONPATH", "PYTHONHOME", "PYTHONSAFEPATH") or key.startswith("QT_") or key.startswith("QML"):
+            env.pop(key)
+    return env
+
+
+def _run(action: str, payload: dict) -> dict:
+    done = subprocess.run(
+        [*_command(), "anki", action],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=900,
+        env=_clean_env(),
+    )
+    try:
+        return json.loads(done.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": (done.stderr or done.stdout or f"ankihelper exited {done.returncode}").strip()[-500:]}
+
+
+def call(action: str, payload: dict, on_done=None) -> None:
+    def finished(future) -> None:
+        try:
+            reply = future.result()
+        except Exception as error:  # a missing CLI or a timeout must not crash Anki
+            reply = {"error": str(error)}
+        if on_done:
+            on_done(reply)
+
+    mw.taskman.run_in_background(lambda: _run(action, payload), finished)
+
+
+def text_of(fragment: str) -> str:
+    fragment = re.sub(r"(?i)<br\s*/?>|</(p|div|li|pre|tr)>", "\n", fragment)
+    return unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
+
+
+def _sides(note) -> tuple[str, str] | None:
+    names = list(note.keys())
+    return (names[0], names[1]) if len(names) >= 2 else None
+
+
+def _describe(note) -> dict:
+    sides = _sides(note)
+    card_ids = note.card_ids()
+    deck = mw.col.decks.name(mw.col.get_card(card_ids[0]).did) if card_ids else ""
+    return {
+        "note_id": note.id,
+        "model": note.note_type()["name"],
+        "deck": deck,
+        "tags": list(note.tags),
+        "question": text_of(note[sides[0]]) if sides else "",
+        "answer": text_of(note[sides[1]]) if sides else "",
+    }
+
+
+def _current_note():
+    if mw.state != "review" or not mw.reviewer.card:
+        tooltip("Open a card in review first.")
+        return None
+    return mw.reviewer.card.note()
+
+
+def _save(note, fields: dict[str, str], add_tags: list[str], message: str) -> None:
+    for name, value in fields.items():
+        note[name] = value
+    for tag in add_tags:
+        note.add_tag(tag)
+    _writing.add(note.id)
+
+    def saved(_changes) -> None:
+        _writing.discard(note.id)
+        tooltip(message)
+
+    update_note(parent=mw, note=note).success(saved).run_in_background()
+
+
+class FixDialog(QDialog):
+    """Say what is wrong with the card: fix it now, or flag it for the next batch and keep studying."""
+
+    def __init__(self, note, later: bool):
+        super().__init__(mw)
+        self.note = note
+        self.setWindowTitle("AnkiHelper")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("What should change in this card?"))
+        self.text = QLineEdit()
+        self.text.setPlaceholderText("e.g. too long · ask why instead · add bold signaling and why for each")
+        layout.addWidget(self.text)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        self.now = QPushButton("Fix now")
+        self.now.setDefault(not later)
+        self.now.clicked.connect(self.fix_now)
+        self.later = QPushButton("Fix in next batch")
+        self.later.setDefault(later)
+        self.later.clicked.connect(self.fix_later)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        buttons.addStretch()
+        for button in (cancel, self.later, self.now):
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+        self.text.setFocus()
+
+    def fix_now(self) -> None:
+        feedback = self.text.text().strip()
+        sides = _sides(self.note)
+        if not feedback:
+            self.status.setText("Say what should change first.")
+            return
+        if self.note.note_type()["type"] == CLOZE or not sides:
+            self.status.setText("AnkiHelper can rewrite cards with a question and an answer field, not cloze cards.")
+            return
+        self.now.setEnabled(False)
+        self.later.setEnabled(False)
+        self.status.setText("⏳ AnkiHelper is rewriting this card…")
+        payload = {
+            "note_id": self.note.id,
+            "question_html": self.note[sides[0]],
+            "answer_html": self.note[sides[1]],
+            "feedback": feedback,
+        }
+        call("fix", payload, self._fixed)
+
+    def _fixed(self, reply: dict) -> None:
+        if "error" in reply:
+            self.status.setText(f"⚠ {reply['error']}")
+            self.now.setEnabled(True)
+            self.later.setEnabled(True)
+            return
+        sides = _sides(self.note)
+        _save(
+            self.note,
+            {sides[0]: reply["front"], sides[1]: reply["back"]},
+            reply.get("add_tags", []),
+            "AnkiHelper rewrote the card. Edit → Undo brings the old one back.",
+        )
+        self.accept()
+
+    def fix_later(self) -> None:
+        feedback = self.text.text().strip()
+        call("flag", {"note_id": self.note.id, "feedback": feedback})
+        card = mw.reviewer.card
+        if card:
+            set_card_flag(parent=mw, card_ids=[card.id], flag=RED_FLAG).run_in_background()
+        tooltip("Flagged. The next AnkiHelper batch fixes it.")
+        self.accept()
+
+
+def fix_card(later: bool = False) -> None:
+    note = _current_note()
+    if note:
+        FixDialog(note, later).exec()
+
+
+class HistoryDialog(QDialog):
+    """Where the card came from: the learner's own note, the other cards made from it, and its versions."""
+
+    def __init__(self, note):
+        super().__init__(mw)
+        self.note = note
+        self.setWindowTitle("AnkiHelper · history of this card")
+        self.resize(680, 620)
+        layout = QVBoxLayout(self)
+        self.view = QTextBrowser()
+        self.view.setOpenLinks(False)
+        self.view.anchorClicked.connect(self._clicked)
+        self.view.setHtml("<p>Loading…</p>")
+        layout.addWidget(self.view)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        layout.addWidget(close, 0, Qt.AlignmentFlag.AlignRight)
+        self.reply: dict = {}
+        call("history", {"note_id": note.id}, self._show)
+
+    def _show(self, reply: dict) -> None:
+        self.reply = reply
+        if "error" in reply:
+            self.view.setHtml(f"<p>⚠ {reply['error']}</p>")
+            return
+        if not reply.get("known"):
+            self.view.setHtml("<p>This card was not made by AnkiHelper, so there is no history for it.</p>")
+            return
+        entry, media = reply["entry"], reply["media_dir"]
+        parts = [
+            "<h3>Your note</h3>",
+            f"<p><b>{entry['question'] or '(the question was a picture)'}</b><br>{entry['answer']}</p>",
+            f"<p style='color:gray'>{entry['topic']} · {entry['created']}</p>",
+        ]
+        for image in entry["images"]:
+            parts.append(f"<p><img src='{media}/{image['file']}' width='260'></p>")
+        card = reply["card"]
+        parts.append(f"<p style='color:gray'>This card: group <b>{card.get('group', 'main')}</b>, Bloom <b>{card.get('bloom') or '?'}</b></p>")
+        siblings = [s for s in reply["siblings"] if _exists(s["note_id"])]
+        if siblings:
+            parts.append("<h3>Other cards from the same note</h3><ul>")
+            parts += [f"<li>[{s['group']}] {s['question']}</li>" for s in siblings]
+            parts.append("</ul>")
+        if reply["versions"]:
+            parts.append("<h3>Versions you were offered</h3>")
+            for v_index, version in enumerate(reply["versions"]):
+                parts.append(f"<p><b>✨ {version['style']}</b><br><span style='color:gray'>{version['why']}</span></p>")
+                for c_index, item in enumerate(version["cards"]):
+                    parts.append(
+                        f"<div style='border:1px solid #888; padding:8px'>{item['front']}<hr>{item['back']}</div>"
+                        f"<p><a href='use:{v_index}:{c_index}'>Use this version</a></p>"
+                    )
+        self.view.setHtml("".join(parts))
+
+    def _clicked(self, url) -> None:
+        action, _, rest = url.toString().partition(":")
+        if action != "use":
+            return
+        v_index, c_index = (int(x) for x in rest.split(":"))
+        item = self.reply["versions"][v_index]["cards"][c_index]
+        call("use-version", {"note_id": self.note.id, "card": item["card"]}, self._used)
+
+    def _used(self, reply: dict) -> None:
+        if "error" in reply:
+            showWarning(reply["error"])
+            return
+        sides = _sides(self.note)
+        _save(self.note, {sides[0]: reply["front"], sides[1]: reply["back"]}, [], "Switched to that version.")
+        self.accept()
+
+
+def _exists(note_id: int) -> bool:
+    try:
+        mw.col.get_note(note_id)
+        return True
+    except Exception:  # deleted since it was made
+        return False
+
+
+def show_history() -> None:
+    note = _current_note()
+    if note:
+        HistoryDialog(note).exec()
+
+
+def _watch_edits(col) -> None:
+    """Report hand edits (from the editor, the browser or other add-ons) so AnkiHelper can learn from them."""
+    original = col.update_notes
+
+    def update_notes(notes, skip_undo_entry: bool = False):
+        events = []
+        for note in notes:
+            if not note.id or note.id in _writing:
+                continue
+            try:
+                before = col.get_note(note.id)
+            except Exception:  # a note that is not saved yet has nothing to compare
+                continue
+            sides = _sides(note)
+            if sides and (before[sides[0]] != note[sides[0]] or before[sides[1]] != note[sides[1]]):
+                after = _describe(note)
+                events.append(
+                    {
+                        "kind": "edit",
+                        "note_id": note.id,
+                        "model": after["model"],
+                        "deck": after["deck"],
+                        "tags": after["tags"],
+                        "before": {"question": text_of(before[sides[0]]), "answer": text_of(before[sides[1]])},
+                        "after": {"question": after["question"], "answer": after["answer"]},
+                    }
+                )
+        result = original(notes, skip_undo_entry=skip_undo_entry)
+        if events:
+            mw.taskman.run_on_main(lambda: call("event", {"events": events}))
+        return result
+
+    col.update_notes = update_notes
+
+
+def _report_deletions(col, note_ids) -> None:
+    events = []
+    for note_id in note_ids:
+        try:
+            events.append({"kind": "delete", **_describe(col.get_note(note_id))})
+        except Exception:  # already gone; nothing to learn from it
+            continue
+    if events:
+        mw.taskman.run_on_main(lambda: call("event", {"events": events}))
+
+
+def _shortcuts(state: str, shortcuts: list) -> None:
+    if state == "review":
+        shortcuts.append(("f", lambda: fix_card(later=False)))
+        shortcuts.append(("Shift+F", lambda: fix_card(later=True)))
+
+
+def _context_menu(reviewer, menu: QMenu) -> None:
+    menu.addSeparator()
+    menu.addAction("AnkiHelper: fix this card  (F)", lambda: fix_card(later=False))
+    menu.addAction("AnkiHelper: fix in next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("AnkiHelper: history of this card", show_history)
+
+
+def _detached(*args: str) -> None:
+    subprocess.Popen([*_command(), *args], env=_clean_env(), start_new_session=True)
+
+
+def _menu() -> None:
+    menu = QMenu("AnkiHelper", mw)
+    for title, handler in (
+        ("Fix current card  (F)", lambda: fix_card(later=False)),
+        ("History of current card", show_history),
+        ("Open AnkiHelper", lambda: _detached("setup", "inbox")),
+        ("Run a batch now", lambda: _detached("batch")),
+    ):
+        action = QAction(title, mw)
+        action.triggered.connect(handler)
+        menu.addAction(action)
+    mw.form.menuTools.addMenu(menu)
+
+
+gui_hooks.main_window_did_init.append(_menu)
+gui_hooks.profile_did_open.append(lambda: _watch_edits(mw.col))
+gui_hooks.state_shortcuts_will_change.append(_shortcuts)
+gui_hooks.reviewer_will_show_context_menu.append(_context_menu)
+hooks.notes_will_be_deleted.append(_report_deletions)

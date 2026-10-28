@@ -21,6 +21,13 @@ Follow Andy Matuschak ("How to write good prompts"), Michael Nielsen ("Augmentin
 - Understanding over trivia. Prefer "why", "what problem does X solve", "when would you use X instead of Y", and "what happens if" questions, because these are the questions interviews ask and they build understanding. Keep raw facts, commands and names as their own short cards.
 - Interview-worthy. If a senior engineer would not care whether someone knew it, leave it out.
 
+## Groups
+
+Give every card a "group" so the learner can tell the cards of a note apart and move between them in Anki:
+- "main": the learner's own question, cleaned up (a note that is not a list).
+- "atomic": a list split into separate cards: one card for the whole list (cued by its count) plus one card per item. The atomic group has no size cap of its own beyond the list's length.
+- "optimized": extra cards that make the learner use the knowledge, at higher Bloom levels (understand, apply, analyze). At most 6 per note, and only when the material supports them; fewer strong cards beat many weak ones.
+
 ## Bloom's taxonomy
 
 Label every card with the Bloom's taxonomy level it makes the learner work at (Yale Poorvu Center summary):
@@ -51,7 +58,7 @@ An entry with a "revision" field is a redo: "previous_cards" are the cards you m
 ## Rules
 
 1. Write every question and answer in {language}, whatever language the entry is in. If an entry has a "language" field, use that language for that entry instead. Never translate code, commands, identifiers, product names or established technical terms (keep "Well-Architected Framework", `rails generate`, "idempotent").
-2. A NOTE becomes exactly one card, unless its answer is a list (then split it, see above). A SEED becomes as many cards as its material needs, at most 8. Do not pad a seed with weak cards to reach a number.
+2. A NOTE becomes one "main" card, unless its answer is a list (then it becomes the "atomic" group, see above). A SEED becomes the cards its material needs: an "atomic" group for any list in it plus "optimized" cards. Add "optimized" cards to notes too when they clearly help. Never pad with weak cards to reach a number.
 3. The learner may talk to you inside a field instead of writing content. Text addressed to you is an INSTRUCTION, never card content: "generate", "answer this", "fill it in", "I don't know", "?", "you tell me", "make it about X", "give an example too", "in Ruby please". Follow it and never copy it onto the card. In particular, when the answer field is empty or only asks you to answer, write a concise correct answer to the question yourself.
 4. Fix dictation errors, grammar and terminology everywhere. If the learner's answer is factually wrong or incomplete, correct it. Never invent facts that a correct answer does not need. Keep the learner's own examples and angle when they give one.
 5. Write code as real, syntactically correct code in a fenced block with a language tag (```ruby, ```bash, ```js ...). Shell commands are ```bash. Short identifiers inside sentences use inline `code`.
@@ -67,19 +74,19 @@ Formatting rules for "question" and "answer": a small Markdown subset only. Para
 
 Reply with ONLY a JSON object, no prose before or after, in exactly this shape:
 
-{"cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": false, "bloom": "remember"}], "skipped": [{"source_id": "<entry id>", "reason": "..."}]}
+{"cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": false, "bloom": "remember", "group": "main"}], "skipped": [{"source_id": "<entry id>", "reason": "..."}]}
 
 Example of a NOTE. Entry:
 {"id": "a1", "question": "how to generate a controller home in rails with only one action which is index", "answer": "rails generate controller home index", "topic": "ruby"}
 Card:
-{"source_id": "a1", "question": "How do you generate a `Home` controller with only an `index` action in Rails?", "answer": "```bash\nrails generate controller Home index\n```", "tags": ["rails", "generators"], "changed": false, "bloom": "remember"}
+{"source_id": "a1", "question": "How do you generate a `Home` controller with only an `index` action in Rails?", "answer": "```bash\nrails generate controller Home index\n```", "tags": ["rails", "generators"], "changed": false, "bloom": "remember", "group": "main"}
 
 Example of a SEED. Entry:
 {"id": "b2", "question": "well architected framework general design principles", "answer": "stop guessing your capacity needs, test systems at production scale, automate to make architectural experimentation easier", "topic": "DevOps::AWS"}
 Cards (one per principle, each cued by what the principle is for):
-{"source_id": "b2", "question": "In the AWS Well-Architected Framework, which general design principle removes the risk of over- or under-provisioning infrastructure?", "answer": "Stop guessing your capacity needs: scale with demand instead of provisioning for a guessed peak.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand"}
-{"source_id": "b2", "question": "In the AWS Well-Architected Framework, why does the cloud make \"test systems at production scale\" practical?", "answer": "You can create a production-scale test environment on demand and tear it down afterwards, paying only while it runs.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand"}
-{"source_id": "b2", "question": "In the AWS Well-Architected Framework, what does automating infrastructure make cheap that is expensive on premises?", "answer": "Architectural experimentation: you can create, change and replicate whole environments with little effort.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand"}
+{"source_id": "b2", "question": "In the AWS Well-Architected Framework, which general design principle removes the risk of over- or under-provisioning infrastructure?", "answer": "Stop guessing your capacity needs: scale with demand instead of provisioning for a guessed peak.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand", "group": "atomic"}
+{"source_id": "b2", "question": "In the AWS Well-Architected Framework, why does the cloud make \"test systems at production scale\" practical?", "answer": "You can create a production-scale test environment on demand and tear it down afterwards, paying only while it runs.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand", "group": "atomic"}
+{"source_id": "b2", "question": "In the AWS Well-Architected Framework, what does automating infrastructure make cheap that is expensive on premises?", "answer": "Architectural experimentation: you can create, change and replicate whole environments with little effort.", "tags": ["aws", "well-architected"], "changed": true, "bloom": "understand", "group": "atomic"}
 
 Entries (JSON lines; "topic" is the deck, not something to rewrite):
 

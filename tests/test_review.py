@@ -144,8 +144,8 @@ def test_bloom_level_is_kept_validated_and_tagged(fake_anki, monkeypatch):
     batch.run(Config(anki_url=fake_anki.url), AnkiConnect(fake_anki.url))
 
     tags = {n["fields"]["Front"]: n["tags"] for n in fake_anki.notes}
-    assert any("bloom-apply" in t for t in tags.values())
-    assert not any(tag.startswith("bloom-memorize") for t in tags.values() for tag in t)
+    assert any("ah::bloom::apply" in t for t in tags.values())
+    assert not any("memorize" in tag for t in tags.values() for tag in t)
 
 
 def test_process_prompt_splits_lists_and_uses_bloom():

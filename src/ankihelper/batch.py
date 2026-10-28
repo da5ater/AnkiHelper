@@ -1,9 +1,10 @@
 import json
+import re
 from dataclasses import asdict, dataclass, field
 
 from filelock import FileLock, Timeout
 
-from . import agents, config, inbox, render
+from . import agents, config, inbox, notes, render
 from .anki import AnkiConnect, AnkiError, AnkiUnreachable, DuplicateNote, SetupProblem
 from .config import Config
 from .inbox import Entry
@@ -11,7 +12,10 @@ from .inbox import Entry
 REPAIR_ATTEMPTS = 2
 CLEAN_ATTEMPTS = 2
 ENTRIES_PER_AGENT_CALL = 20
-MAX_CARDS_PER_ENTRY = 8
+MAX_CARDS_PER_ENTRY = 6
+"""Cap on a note's cards outside the atomic group; a list's atomic split is capped separately."""
+MAX_ATOMIC_CARDS = 15
+GROUPS = ("main", "atomic", "optimized")
 SOURCE_TAG = "manual_voice"
 
 
@@ -27,6 +31,11 @@ class Card:
     changed: bool
     bloom: str = ""
     """Bloom's taxonomy level the card works at: one of BLOOM_LEVELS, or "" when unknown."""
+    group: str = "main"
+    """main: the learner's own question. atomic: a list split into one card per item plus one for the whole
+    list. optimized: extra higher-level cards. Anything else: the strategy of a version the learner picked."""
+    versions: list[dict] = field(default_factory=list)
+    """Alternatives offered in Preview ({"style", "why", "cards"}), kept so History in Anki can switch to them."""
 
     @classmethod
     def parse(cls, raw) -> "Card":
@@ -39,6 +48,8 @@ class Card:
             raise agents.AgentError(f"card without an answer: {raw!r}")
         tags = [str(t).strip().lower().replace(" ", "-") for t in raw.get("tags") or [] if str(t).strip()]
         bloom = str(raw.get("bloom") or "").strip().lower()
+        group = re.sub(r"[^a-z0-9-]+", "-", str(raw.get("group") or "main").strip().lower()).strip("-") or "main"
+        versions = raw.get("versions") if isinstance(raw.get("versions"), list) else []
         return cls(
             str(raw.get("source_id", "")),
             question,
@@ -46,6 +57,8 @@ class Card:
             tags,
             bool(raw.get("changed")),
             bloom if bloom in BLOOM_LEVELS else "",
+            group,
+            versions,
         )
 
 
@@ -61,6 +74,9 @@ class Summary:
     skipped: int = 0
     failed: dict[str, str] = field(default_factory=dict)
     sync_error: str | None = None
+    fixed: int = 0
+    fix_errors: list[str] = field(default_factory=list)
+    suggestions: int = 0
 
     def message(self) -> str:
         parts = [f"{self.imported} imported"]
@@ -72,6 +88,12 @@ class Summary:
             parts.append(f"{self.skipped} skipped as unusable")
         if self.failed:
             parts.append(f"{len(self.failed)} failed (kept in inbox)")
+        if self.fixed:
+            parts.append(f"{self.fixed} flagged card(s) fixed")
+        if self.fix_errors:
+            parts.append(f"{len(self.fix_errors)} flagged card(s) could not be fixed")
+        if self.suggestions:
+            parts.append(f"{self.suggestions} new rule suggestion(s) in Settings")
         text = ", ".join(parts)
         if self.sync_error:
             text += f". Sync failed: {self.sync_error}"
@@ -83,6 +105,22 @@ def deck_for(cfg: Config, topic: str) -> str:
     return f"{cfg.root_deck}::{topic}" if topic else cfg.root_deck
 
 
+def capped(cards: list[Card]) -> list[Card]:
+    atomic = [c for c in cards if c.group == "atomic"][:MAX_ATOMIC_CARDS]
+    others = [c for c in cards if c.group != "atomic"][:MAX_CARDS_PER_ENTRY]
+    keep = {id(c) for c in atomic + others}
+    return [c for c in cards if id(c) in keep]
+
+
+def anki_tags(card: Card, entry: Entry) -> list[str]:
+    tags = [*card.tags, SOURCE_TAG, f"ah::seed::{entry.id}", f"ah::group::{card.group}"]
+    if card.bloom:
+        tags.append(f"ah::bloom::{card.bloom}")
+    if card.changed:
+        tags.append("changed")
+    return tags
+
+
 def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dict[str, str]]:
     raw_cards, raw_skipped = reply.get("cards") or [], reply.get("skipped") or []
     if not isinstance(raw_cards, list) or not isinstance(raw_skipped, list):
@@ -92,11 +130,8 @@ def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dic
         card = Card.parse(raw)
         if card.source_id in ids:
             cards.setdefault(card.source_id, []).append(card)
-    for source_id, group in cards.items():
-        del group[MAX_CARDS_PER_ENTRY:]
-        if len(group) > 1:
-            for card in group:
-                card.tags.append(f"seed-{source_id}")
+    for source_id, entry_cards in cards.items():
+        cards[source_id] = capped(entry_cards)
     skipped = {}
     for raw in raw_skipped:
         if not isinstance(raw, dict):
@@ -162,9 +197,8 @@ def card_html(card: Card, entry: Entry) -> tuple[str, str]:
     return front, back
 
 
-def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
-    tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else []), *([f"bloom-{card.bloom}"] if card.bloom else [])]
-    anki.add_note(deck, cfg.note_type, *card_html(card, entry), tags)
+def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> int:
+    return anki.add_note(deck, cfg.note_type, *card_html(card, entry), anki_tags(card, entry))
 
 
 def _store_images(anki: AnkiConnect, entry: Entry) -> None:
@@ -176,7 +210,8 @@ def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: 
     """Returns ("imported" | "duplicate", final card). Raises AnkiError once repairs are exhausted."""
     for attempt in range(REPAIR_ATTEMPTS + 1):
         try:
-            _add(anki, cfg, deck, card, entry)
+            note_id = _add(anki, cfg, deck, card, entry)
+            notes.record(note_id, entry, card)
             return "imported", card
         except DuplicateNote:
             return "duplicate", card
@@ -186,7 +221,9 @@ def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: 
             reply = agents.extract_json(
                 agents.ask(agent, agents.prompt("repair", card=json.dumps(asdict(card)), error=str(error)))
             )
-            card = Card.parse(reply.get("card", reply))
+            repaired = Card.parse(reply.get("card", reply))
+            repaired.group, repaired.versions = card.group, card.versions
+            card = repaired
     raise AssertionError("unreachable")
 
 
@@ -223,9 +260,12 @@ def _clean_all(agent: str, language: str, entries: list[Entry], summary: Summary
 
 
 def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = None) -> Summary:
+    from . import bridge, learning
+
     entries = [e for e in inbox.read_all() if only is None or e.id in only]
     summary = Summary()
-    if not entries:
+    has_flags = only is None and bridge.has_flagged()
+    if not entries and not has_flags:
         return summary
 
     anki.ensure_running()
@@ -289,6 +329,13 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
 
     if stopped:
         raise stopped
+    if has_flags:
+        summary.fixed, summary.fix_errors = bridge.fix_flagged(cfg, anki)
+    if only is None:
+        try:
+            summary.suggestions = len(learning.learn(cfg))
+        except agents.AgentError:
+            pass
     try:
         anki.sync()
     except (AnkiError, AnkiUnreachable) as error:

@@ -81,6 +81,15 @@ class AnkiConnect:
             },
         )
 
+    def notes_info(self, note_ids: list[int]) -> list[dict]:
+        return self.invoke("notesInfo", notes=note_ids)
+
+    def update_fields(self, note_id: int, fields: dict[str, str]) -> None:
+        self.invoke("updateNoteFields", note={"id": note_id, "fields": fields})
+
+    def add_tags(self, note_ids: list[int], tags: list[str]) -> None:
+        self.invoke("addTags", notes=note_ids, tags=" ".join(tags))
+
     def store_media(self, name: str, path: str) -> None:
         self.invoke("storeMediaFile", filename=name, path=path)
 

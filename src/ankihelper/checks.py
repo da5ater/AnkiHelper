@@ -83,6 +83,14 @@ def _agent(cfg: Config) -> Result:
     return Result(False, f"{cfg.agent} answered unexpectedly: {reply.strip()[:120]!r}")
 
 
+def _addon(cfg: Config) -> Result:
+    from . import addon
+
+    if addon.installed():
+        return Result(True, f"in {addon.addons_dir() / addon.NAME}")
+    return Result(False, "The AnkiHelper add-on is not installed in Anki")
+
+
 def _keybinds(cfg: Config) -> Result:
     return Result(*platform.keybind_status())
 
@@ -99,6 +107,7 @@ CHECKS: list[Check] = [
     Check("dictation", "Dictation available", _dictation, _hint("Install voxtype (https://voxtype.io), run `voxtype setup`, and start its daemon (`systemctl --user enable --now voxtype`). Or pick another dictation method in Settings.")),
     Check("path", "ankihelper on PATH", _on_path, _hint("Install the CLI with `uv tool install --editable <project dir>` so `ankihelper` lands in ~/.local/bin, and make sure that directory is on PATH.")),
     Check("agent", "Agent CLI works", _agent, lambda cfg: f"Make the `{cfg.agent}` CLI installed and logged in so it can answer a non-interactive prompt."),
+    Check("addon", "Anki add-on installed", _addon, _hint("Run `ankihelper install-addon`, then restart Anki.")),
     Check("keybinds", "Shortcuts installed", _keybinds, lambda cfg: platform.keybind_fix_hint()),
 ]
 

@@ -22,6 +22,7 @@ from . import theme
 from .common import Page, card, label, pill
 from .worker import run_async
 
+GROUP_COLORS = {"main": theme.AMBER, "atomic": theme.BLUE, "optimized": theme.GREEN}
 PR_URL = re.compile(r"https://github\.com/\S+/pull/\d+")
 INDENT = 46
 STUB_Y = 26
@@ -129,6 +130,7 @@ class CardNode(QFrame):
 
         header = QHBoxLayout()
         header.addWidget(pill(f"CARD {index + 1} / {total}", theme.VIOLET))
+        header.addWidget(pill(slot.card.group, GROUP_COLORS.get(slot.card.group, theme.CYAN)))
         if slot.card.bloom:
             header.addWidget(_bloom(slot.card.bloom))
         if slot.status == review.ACCEPTED:

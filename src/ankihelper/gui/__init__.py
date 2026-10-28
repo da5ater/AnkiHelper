@@ -127,6 +127,8 @@ class MainWindow(QWidget):
         self.review.open(entry)
 
     def go(self, name: str) -> None:
+        if name == "settings":
+            self.settings.reload_rules()
         self.nav_buttons["inbox" if name == "review" else name].setChecked(True)
         self.stack.setCurrentWidget(self.pages[name])
         self.pages[name].shown()

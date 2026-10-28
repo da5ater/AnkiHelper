@@ -85,7 +85,8 @@ def test_batch_imports_cleaned_cards_into_topic_deck(setup, fake_anki, agent):
     assert rails["modelName"] == "Basic+"
     assert "background: #272822" in rails["fields"]["Back"], "code is highlighted"
     assert rails["fields"]["Front"].startswith('<div style="font-weight:600')
-    assert set(rails["tags"]) == {"rails-basics", "manual_voice"}
+    assert {"rails-basics", "manual_voice", "ah::group::main"} <= set(rails["tags"])
+    assert any(t.startswith("ah::seed::") for t in rails["tags"])
     assert "changed" in git["tags"]
     assert inbox.read_all() == [], "imported entries leave the inbox"
     assert fake_anki.synced == 1
@@ -349,16 +350,28 @@ def test_cards_are_written_in_the_configured_language_with_per_card_override(set
     assert '"language": "Arabic"' in prompt_text
 
 
-def test_a_seed_becomes_at_most_eight_cards_sharing_a_seed_tag(setup, fake_anki, agent):
+def test_atomic_list_cards_are_capped_apart_from_the_other_cards_and_tagged_by_group(setup, fake_anki, agent):
     cfg, anki = setup
     entry = capture("well architected design principles", "many principles", "DevOps::AWS")
-    agent.process_replies = [
-        json.dumps(
-            {"cards": [{"source_id": entry.id, "question": f"principle {n}?", "answer": "x", "tags": ["aws"], "changed": True} for n in range(12)]}
-        )
-    ]
+    atomic = [{"source_id": entry.id, "question": f"principle {n}?", "answer": "x", "group": "atomic"} for n in range(7)]
+    optimized = [{"source_id": entry.id, "question": f"why {n}?", "answer": "x", "group": "optimized", "bloom": "understand"} for n in range(9)]
+    agent.process_replies = [json.dumps({"cards": atomic + optimized})]
 
     summary = batch.run(cfg, anki)
 
-    assert summary.imported == batch.MAX_CARDS_PER_ENTRY
-    assert all(f"seed-{entry.id}" in note["tags"] for note in fake_anki.notes)
+    assert summary.imported == 7 + batch.MAX_CARDS_PER_ENTRY, "the atomic split does not count toward the cap"
+    assert all(f"ah::seed::{entry.id}" in note["tags"] for note in fake_anki.notes)
+    groups = [next(t for t in note["tags"] if t.startswith("ah::group::")) for note in fake_anki.notes]
+    assert groups.count("ah::group::atomic") == 7 and groups.count("ah::group::optimized") == batch.MAX_CARDS_PER_ENTRY
+
+
+def test_imported_notes_are_indexed_with_their_entry(setup, agent):
+    from ankihelper import notes
+
+    cfg, anki = setup
+    entry = capture("what is a gem", "a ruby library", "ruby")
+    batch.run(cfg, anki)
+
+    record = notes.find(1)
+    assert record["entry"]["question"] == "what is a gem" and record["card"]["question"] == "What is a gem?"
+    assert [r["note_id"] for r in notes.siblings(entry.id)] == [1]

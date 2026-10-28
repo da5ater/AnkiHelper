@@ -1,10 +1,21 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QFormLayout, QGridLayout, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QFormLayout,
+    QGridLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
-from .. import agents, config, dictation
+from .. import agents, config, dictation, learning
 from ..config import Config
 from . import theme
-from .common import Page, label, language_box
+from .common import Page, card, label, language_box
 
 AGENT_BLURBS = {
     "claude": "Claude Code",
@@ -78,6 +89,9 @@ class SettingsPage(Page):
         self.rules.setMinimumHeight(110)
         self.rules.textChanged.connect(self._save_rules)
         layout.addWidget(self.rules)
+        self.suggested = QVBoxLayout()
+        self.suggested.setSpacing(8)
+        layout.addLayout(self.suggested)
         self.reload_rules()
 
         layout.addSpacing(8)
@@ -130,6 +144,36 @@ class SettingsPage(Page):
         self.rules.blockSignals(True)
         self.rules.setPlainText(config.personal_rules())
         self.rules.blockSignals(False)
+        while self.suggested.count():
+            item = self.suggested.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        items = learning.suggestions()
+        if items:
+            self.suggested.addWidget(label("SUGGESTED FROM HOW YOU EDIT AND DELETE CARDS IN ANKI", "fieldLabel"))
+        for item in items:
+            self.suggested.addWidget(self._suggestion(item))
+
+    def _suggestion(self, item: dict) -> QWidget:
+        frame = card()
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(14, 10, 10, 10)
+        text = QVBoxLayout()
+        rule = QPlainTextEdit(item["rule"])
+        rule.setFixedHeight(80)
+        text.addWidget(rule)
+        if item.get("evidence"):
+            text.addWidget(label(item["evidence"], "faint", wrap=True))
+        layout.addLayout(text, 1)
+        add = QPushButton("＋ Add rule")
+        add.clicked.connect(lambda: (learning.accept(item["id"], rule.toPlainText().strip()), self.reload_rules()))
+        dismiss = QPushButton("✕")
+        dismiss.setObjectName("danger")
+        dismiss.setToolTip("Dismiss this suggestion")
+        dismiss.clicked.connect(lambda: (learning.dismiss(item["id"]), self.reload_rules()))
+        layout.addWidget(add)
+        layout.addWidget(dismiss)
+        return frame
 
     def _save_rules(self) -> None:
         text = self.rules.toPlainText().strip()

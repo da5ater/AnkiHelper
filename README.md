@@ -42,6 +42,28 @@ Answers stay short. Say "explain" in a card to get up to three "why" bullets. Wh
 
 Imported entries move to `~/.local/share/ankihelper/archive/<date>.jsonl`, raw dictation next to the cleaned cards, so an agent can look back at what you originally said.
 
+## The Anki add-on
+
+AnkiHelper also lives inside Anki, so you can fix cards at the moment you meet them while studying, and every fix teaches it.
+
+- **F** on the review screen opens "What should change in this card?". **Fix now** rewrites the card in place in about 10 seconds (Edit → Undo brings the old one back). **Shift+F**, or **Fix in next batch**, flags the card red and the next `ankihelper batch` rewrites it, so you keep studying. Both work on any card with a question and an answer field, not only the ones AnkiHelper made; cloze cards are not supported yet.
+- **History of this card** (right-click on the review screen, or Tools → AnkiHelper) shows your original note and pictures, the other cards made from the same note, and the versions you were offered in Preview, with **Use this version** to switch.
+- **It learns from what you do.** The add-on quietly records cards you edit by hand and cards you delete, across your whole collection. Every 10 events, and at the end of each batch, the agent looks for patterns ("deleted 5 of 7 create-level cards", "always shortens answers") and suggests a rule. Suggestions appear in Settings under Personal rules, where you add or dismiss them. Nothing becomes a rule without your OK.
+
+### Card groups and tags
+
+Every card AnkiHelper makes is tagged so a whole note's cards stay findable together in Anki's browser:
+
+| Tag | Meaning |
+| --- | --- |
+| `ah::seed::<id>` | All cards made from one note |
+| `ah::group::main` | Your own question, cleaned up |
+| `ah::group::atomic` | A list split into one card per item, plus one for the whole list. Not counted toward the cap |
+| `ah::group::optimized` | Extra higher-level cards (at most 6 per note) |
+| `ah::group::<strategy>` | A version you picked in Preview (scenario, reverse, ...) |
+| `ah::bloom::<level>` | Bloom's taxonomy level |
+| `ah::fixed` | Rewritten from your feedback in Anki |
+
 ## Install
 
 Requires [uv](https://docs.astral.sh/uv/), Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on, and at least one agent CLI.
@@ -50,10 +72,11 @@ Requires [uv](https://docs.astral.sh/uv/), Anki with the [AnkiConnect](https://a
 git clone https://github.com/da5ater/AnkiHelper.git
 cd AnkiHelper
 uv tool install --editable .
+ankihelper install-addon
 ankihelper setup
 ```
 
-Setup tells you what's missing, and "Fix with agent" can install the shortcuts and create the deck or note type for you.
+`ankihelper install-addon` links the add-on into Anki's add-ons folder (`~/.local/share/Anki2/addons21/ankihelper` on Linux; it copies on Windows) and records where the `ankihelper` command lives, since Anki starts without your shell's PATH. Restart Anki afterwards; Tools → AnkiHelper confirms it loaded. Setup checks for it too, and tells you what else is missing; "Fix with agent" can install the shortcuts and create the deck or note type for you.
 
 ## Configuration
 

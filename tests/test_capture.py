@@ -104,3 +104,26 @@ def test_language_override_is_saved_only_when_it_differs_from_the_default(window
     [entry] = inbox.read_all()
     assert entry.language == "Arabic"
     assert Config.load().last_language == "Arabic"
+
+
+def test_save_in_preview_keeps_only_accepted_cards_and_returns_to_the_inbox(window):
+    from ankihelper import batch, review
+
+    main = window.window_
+    entry = inbox.Entry.new("aws security", "", "DevOps::AWS")
+    inbox.append(entry)
+    page = main.review
+    main.go("review")
+    page.review = review.Review(entry, [review.Slot(batch.Card(entry.id, q, "a", [], False)) for q in ("one", "two", "three")])
+    page.render()
+    assert not page.keep_button.isEnabled(), "nothing accepted yet"
+
+    page._set_status(0, review.ACCEPTED)
+    page._set_status(2, review.REMOVED)
+    assert page.keep_button.text().endswith("Save 1")
+    page.keep_button.click()
+
+    [saved] = inbox.read_all()
+    assert [c["question"] for c in saved.cards] == ["one"]
+    assert main.stack.currentWidget() is main.inbox
+    assert "Saved 1 card" in main.inbox.notice.text()

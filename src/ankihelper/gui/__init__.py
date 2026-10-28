@@ -65,6 +65,7 @@ class MainWindow(QWidget):
         self.inbox.changed.connect(self._refresh_badges)
         self.inbox.preview_requested.connect(self._preview)
         self.review.back.connect(lambda: self.go("inbox"))
+        self.review.saved.connect(lambda text: (self.go("inbox"), self.inbox.flash(text)))
         self.review.changed.connect(self._refresh_badges)
         self.review.changed.connect(self.settings.reload_rules)
         self.settings.changed.connect(self._settings_changed)

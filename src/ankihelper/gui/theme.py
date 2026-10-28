@@ -59,6 +59,7 @@ QPushButton#nodeAction[kind="accept"][on="true"] {{ background: rgba(52, 211, 15
 QPushButton#nodeAction[kind="remove"] {{ color: {MUTED}; }}
 QPushButton#nodeAction[kind="remove"]:hover {{ color: {RED}; border-color: {RED}; }}
 QPushButton#nodeAction[kind="go"] {{ background: {VIOLET}; border: none; color: white; }}
+QPushButton#nodeAction:disabled {{ background: {SURFACE}; color: {FAINT}; border: 1px solid {SURFACE_HI}; }}
 QFrame#thumb {{ background: {SURFACE_HI}; border: 1px solid {BORDER}; border-radius: 10px; }}
 QPushButton#modeToggle {{ padding: 4px 10px; border-radius: 9px; font-size: 12px; }}
 QPushButton#modeToggle[mode="show"] {{ background: rgba(139, 92, 246, 0.18); border: 1px solid {VIOLET}; color: #c4b5fd; }}

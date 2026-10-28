@@ -23,6 +23,8 @@ class Version:
     style: str
     why: str
     cards: list[batch.Card]
+    added: bool = False
+    """Its cards were already added next to the card, so it cannot be added or swapped in again."""
 
 
 @dataclass
@@ -46,6 +48,9 @@ class Review:
     @property
     def cards(self) -> list[batch.Card]:
         return [slot.card for slot in self.slots]
+
+    def accepted(self) -> list[batch.Card]:
+        return [slot.card for slot in self.slots if slot.status == ACCEPTED]
 
     def kept(self) -> list[batch.Card]:
         return [slot.card for slot in self.slots if slot.status != REMOVED]
@@ -147,16 +152,21 @@ def versions(cfg: Config, review: Review, index: int) -> list[Version]:
 
 
 def use_version(review: Review, index: int, version: Version, add: bool) -> None:
-    """Swap a card for one of its versions, or add the version's cards right after it."""
+    """Swap a card for one of its versions, or add the version's cards right after it.
+
+    The other versions stay attached so the learner can keep comparing, and a swapped-out card
+    becomes an "Original" version so the swap can be undone."""
     slot = review.slots[index]
     review._record(f"card {index + 1} ({slot.card.question}): picked the {version.style} version" + (" in addition" if add else ""))
-    slot.versions = []
-    new = [Slot(card) for card in version.cards]
     if add:
-        review.slots[index + 1 : index + 1] = new
+        version.added = True
+        review.slots[index + 1 : index + 1] = [Slot(card) for card in version.cards]
     else:
+        others = [v for v in slot.versions if v is not version]
+        original = Version("Original", "The card you had before this swap.", [slot.card])
+        new = [Slot(card) for card in version.cards]
+        new[0].versions = [original, *others]
         review.slots[index : index + 1] = new
-    del review.slots[batch.MAX_CARDS_PER_ENTRY + 4 :]
     _retag(review)
 
 
@@ -165,7 +175,7 @@ def suggest_rule(cfg: Config, review: Review) -> str | None:
         f"Cards before change {n}:\n{json.dumps(cards, ensure_ascii=False)}\nThen the learner said: {said}"
         for n, (cards, said) in enumerate(zip(review.history, review.feedback), start=1)
     )
-    history += "\n\nCards now:\n" + json.dumps([asdict(c) for c in review.kept()], ensure_ascii=False)
+    history += "\n\nCards the learner accepted:\n" + json.dumps([asdict(c) for c in review.accepted()], ensure_ascii=False)
     reply = agents.ask(cfg.agent, agents.prompt("rule", entry=_entry_json(review.entry), history=history), timeout=300).strip()
     rule = reply.splitlines()[-1].strip().strip('"') if reply else ""
     return None if not rule or rule.upper() == "NONE" else rule

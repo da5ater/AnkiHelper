@@ -207,9 +207,15 @@ class VersionNode(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
-        title = label(f"✨ {version.style}")
-        title.setStyleSheet(f"color: {theme.CYAN}; font-weight: 800;")
-        layout.addWidget(title)
+        original = version.style == "Original"
+        header = QHBoxLayout()
+        title = label(f"↩ {version.style}" if original else f"✨ {version.style}")
+        title.setStyleSheet(f"color: {theme.AMBER if original else theme.CYAN}; font-weight: 800;")
+        header.addWidget(title)
+        if version.added:
+            header.addWidget(pill("✓ Added as a new card", theme.GREEN))
+        header.addStretch()
+        layout.addLayout(header)
         if version.why:
             layout.addWidget(label(version.why, "muted", wrap=True))
         for n, c in enumerate(version.cards, start=1):
@@ -219,14 +225,14 @@ class VersionNode(QFrame):
             layout.addWidget(_side("FRONT", theme.PINK, front))
             layout.addWidget(_side("BACK", theme.CYAN, back))
         actions = QHBoxLayout()
-        use = _small_button("⇄ Use instead", f"Replace card {index + 1} with this version", "go")
+        use = _small_button("↩ Switch back" if original else "⇄ Use instead", f"Replace card {index + 1} with this version", "go")
         use.clicked.connect(lambda: self.use.emit(index, number))
         add = _small_button("＋ Add as new card", "Keep the card and add this version next to it")
         add.clicked.connect(lambda: self.add.emit(index, number))
         dismiss = _small_button("✕", "Dismiss this version")
         dismiss.clicked.connect(lambda: self.dismiss.emit(index, number))
         for button in (use, add, dismiss):
-            button.setEnabled(not locked)
+            button.setEnabled(not locked and (button is dismiss or not version.added))
             actions.addWidget(button)
         actions.addStretch()
         layout.addLayout(actions)
@@ -308,6 +314,7 @@ class TreeCanvas(QWidget):
 class ReviewPage(Page):
     back = Signal()
     changed = Signal()
+    saved = Signal(str)
 
     def __init__(self, cfg: Config):
         super().__init__("Preview", "Your note and the cards it becomes. Accept, change or remove each one.", theme.VIOLET)
@@ -360,17 +367,23 @@ class ReviewPage(Page):
         bar = QHBoxLayout()
         self.status = label("", "muted", wrap=True)
         self.status.setOpenExternalLinks(True)
-        self.status.setMinimumWidth(180)
-        self.rule_button = QPushButton("📌  Make this a rule")
+        self.status.setMinimumWidth(90)
+        self.rule_button = QPushButton("📌  Make rule")
         self.rule_button.setToolTip("Turn what you asked for into a rule every future card follows")
         self.rule_button.clicked.connect(self.suggest_rule)
-        self.import_button = QPushButton("⬆  Import now")
+        self.accept_all_button = QPushButton("✓  Accept all")
+        self.accept_all_button.setToolTip("Accept all: every card you haven't removed")
+        self.accept_all_button.clicked.connect(self.accept_all)
+        self.import_button = QPushButton("⬆  Import")
+        self.import_button.setToolTip("Send the accepted cards to Anki right away")
         self.import_button.clicked.connect(self.import_now)
-        self.keep_button = QPushButton("✓  Keep cards")
+        self.keep_button = QPushButton("💾  Save accepted")
         self.keep_button.setObjectName("primary")
+        self.keep_button.setToolTip("Save only the accepted cards; the next batch imports exactly those")
         self.keep_button.clicked.connect(self.keep)
         bar.addWidget(self.status, 1)
         bar.addWidget(self.rule_button)
+        bar.addWidget(self.accept_all_button)
         bar.addWidget(self.import_button)
         bar.addWidget(self.keep_button)
         self.layout_.addLayout(bar)
@@ -436,20 +449,28 @@ class ReviewPage(Page):
 
     def _update_bar(self) -> None:
         slots = self.review.slots
-        kept = sum(s.status != review.REMOVED for s in slots)
         accepted = sum(s.status == review.ACCEPTED for s in slots)
-        self.keep_button.setText(f"✓  Keep {kept} card{'s' if kept != 1 else ''}")
+        pending = sum(s.status == review.PENDING for s in slots)
+        self.keep_button.setText(f"💾  Save {accepted}")
         for button in (self.keep_button, self.import_button):
-            button.setEnabled(not self.busy and kept > 0)
+            button.setEnabled(not self.busy and accepted > 0)
+        self.accept_all_button.setEnabled(not self.busy and pending > 0)
         self.rule_button.setEnabled(not self.busy and bool(self.review.feedback))
         if self.busy:
             self._say(f"⏳ {self.busy_text}")
+        elif slots and not accepted:
+            self._say("Accept the cards to keep.")
         elif slots:
-            removed = len(slots) - kept
-            self._say(f"{len(slots)} card{'s' if len(slots) != 1 else ''} · {kept - accepted} to review")
+            self._say(f"{accepted} accepted · {pending} still to review" if pending else f"{accepted} accepted · all reviewed")
 
     def _set_status(self, index: int, status: str) -> None:
         self.review.slots[index].status = status
+        self.render()
+
+    def accept_all(self) -> None:
+        for slot in self.review.slots:
+            if slot.status == review.PENDING:
+                slot.status = review.ACCEPTED
         self.render()
 
     def redo_all(self, feedback: str) -> None:
@@ -470,18 +491,18 @@ class ReviewPage(Page):
         self.render()
 
     def keep(self) -> None:
-        cards = self.review.kept()
+        cards = self.review.accepted()
         inbox.approve(self.review.entry.id, [asdict(c) for c in cards])
         self.changed.emit()
-        self._say(f"✓ Kept {len(cards)} card(s). The next batch imports exactly these.", theme.GREEN)
+        self.saved.emit(f"✓ Saved {len(cards)} card{'s' if len(cards) != 1 else ''} for “{self.review.entry.question[:60]}”. The next batch imports exactly these.")
 
     def import_now(self) -> None:
-        inbox.approve(self.review.entry.id, [asdict(c) for c in self.review.kept()])
+        inbox.approve(self.review.entry.id, [asdict(c) for c in self.review.accepted()])
         entry_id = self.review.entry.id
 
         def done(summary) -> None:
             self.changed.emit()
-            self._say(f"✓ {summary.message()}", theme.GREEN)
+            self.saved.emit(f"✓ Imported into Anki: {summary.message()}")
 
         self._work(-1, "Importing into Anki…", lambda: batch.run(self.cfg, AnkiConnect(self.cfg.anki_url), only={entry_id}), done)
 

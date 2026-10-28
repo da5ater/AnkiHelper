@@ -1,6 +1,6 @@
 import sys
 
-from PySide6.QtCore import QProcess, Qt, Signal
+from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from .. import inbox
@@ -23,6 +23,10 @@ class InboxPage(Page):
         self.run_button.clicked.connect(self.run_batch)
         self.header.addWidget(self.run_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        self.notice = label("", wrap=True)
+        self.notice.hide()
+        self.layout_.addWidget(self.notice)
+
         self.list = QVBoxLayout()
         self.list.setSpacing(10)
         holder = QWidget()
@@ -42,6 +46,15 @@ class InboxPage(Page):
 
     def shown(self) -> None:
         self.refresh()
+
+    def flash(self, text: str) -> None:
+        self.notice.setText(text)
+        self.notice.setStyleSheet(
+            f"background: {theme.rgba(theme.GREEN, 0.14)}; color: {theme.GREEN}; border: 1px solid {theme.GREEN};"
+            "border-radius: 12px; padding: 10px 14px; font-weight: 700;"
+        )
+        self.notice.show()
+        QTimer.singleShot(6000, self.notice.hide)
 
     def count(self) -> int:
         return len(inbox.read_all())

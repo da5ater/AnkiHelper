@@ -52,11 +52,12 @@ def test_changing_one_card_rewrites_only_that_card(monkeypatch):
     assert session.feedback == ["card 2 (Which services handle IAM?): add bold signaling and why for each one"]
 
 
-def test_removed_cards_are_left_out_of_what_is_kept():
+def test_only_accepted_cards_are_saved():
     entry = inbox.Entry.new("q", "a", "ruby")
     session = _session_with(entry, "one", "two", "three")
+    session.slots[0].status = review.ACCEPTED
     session.slots[1].status = review.REMOVED
-    assert [c.question for c in session.kept()] == ["one", "three"]
+    assert [c.question for c in session.accepted()] == ["one"]
 
 
 def test_kept_cards_are_imported_as_approved_without_asking_the_agent(fake_anki, monkeypatch):
@@ -120,7 +121,10 @@ def test_versions_belong_to_one_card_and_can_replace_it_or_be_added(monkeypatch)
     assert "Which service manages access?" in seen[0] and "Which service logs API calls?" in seen[0]
     review.use_version(session, 0, found[0], add=False)
     assert [s.card.question for s in session.slots] == ["A Lambda must read one bucket. Which service?", "Which service logs API calls?"]
+    assert [v.style for v in session.slots[0].versions] == ["Original", "Reverse"], "other versions stay to keep choosing"
+    assert session.slots[0].versions[0].cards[0].question == "Which service manages access?"
     review.use_version(session, 0, found[1], add=True)
+    assert found[1].added and found[1] in session.slots[0].versions
     assert [s.card.question for s in session.slots] == [
         "A Lambda must read one bucket. Which service?",
         "Who decides who can do what?",

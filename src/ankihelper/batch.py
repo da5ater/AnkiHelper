@@ -88,24 +88,35 @@ def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dic
     return cards, skipped
 
 
+def _media_paths(files: list[str]) -> list[str]:
+    return [str(config.media_dir() / name) for name in files]
+
+
 def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict[str, str]]:
-    payload = "\n".join(
-        json.dumps(
-            {
-                "id": e.id,
-                "question": e.question,
-                "answer": e.answer,
-                "topic": e.topic,
-                "question_images": len(e.images_for("question")),
-                "answer_images": len(e.images_for("answer")),
-            }
+    rows = []
+    to_read: list[str] = []
+    for e in entries:
+        read = {field: _media_paths(e.images_for(field, "read")) for field in ("question", "answer")}
+        to_read += read["question"] + read["answer"]
+        rows.append(
+            json.dumps(
+                {
+                    "id": e.id,
+                    "question": e.question,
+                    "answer": e.answer,
+                    "topic": e.topic,
+                    "question_images": len(e.images_for("question", "show")),
+                    "answer_images": len(e.images_for("answer", "show")),
+                    "question_read_images": read["question"],
+                    "answer_read_images": read["answer"],
+                }
+            )
         )
-        for e in entries
-    )
-    text = agents.prompt("process", entries=payload)
+    text = agents.prompt("process", entries="\n".join(rows))
     for attempt in range(CLEAN_ATTEMPTS):
         try:
-            return _parse_reply(agents.extract_json(agents.ask(agent, text)), {e.id for e in entries})
+            reply = agents.ask(agent, text, images=to_read)
+            return _parse_reply(agents.extract_json(reply), {e.id for e in entries})
         except agents.AgentError:
             if attempt == CLEAN_ATTEMPTS - 1:
                 raise
@@ -114,8 +125,12 @@ def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict
 
 def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
     tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else [])]
-    front = render.question_html(card.question) + render.images_html(entry.images_for("question"))
-    back = render.to_html(card.answer) + render.images_html(entry.images_for("answer"))
+    front = render.question_html(card.question) + render.images_html(entry.images_for("question", "show"))
+    back = (
+        render.to_html(card.answer)
+        + render.images_html(entry.images_for("answer", "show"))
+        + render.source_html(entry.images_for("question", "read") + entry.images_for("answer", "read"))
+    )
     anki.add_note(deck, cfg.note_type, front, back, tags)
 
 

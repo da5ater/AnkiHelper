@@ -12,6 +12,14 @@ class AgentError(Exception):
     pass
 
 
+def _add_dirs(images: list[str]) -> list[str]:
+    return [arg for folder in sorted({os.path.dirname(i) for i in images}) for arg in ("--add-dir", folder)]
+
+
+def _include_dirs(images: list[str]) -> list[str]:
+    return [arg for folder in sorted({os.path.dirname(i) for i in images}) for arg in ("--include-directories", folder)]
+
+
 NO_TOOLS_OPENCODE = json.dumps({"permission": {"edit": "deny", "bash": "deny", "webfetch": "deny"}})
 
 
@@ -19,8 +27,9 @@ NO_TOOLS_OPENCODE = json.dumps({"permission": {"edit": "deny", "bash": "deny", "
 class Agent:
     name: str
     binary: str
-    text: list[str]
-    """Reads the prompt on stdin and answers with text, unable to change files or run commands."""
+    text: Callable[[list[str]], list[str]]
+    """Reads the prompt on stdin and answers with text. It may read the given image files, nothing else
+    is writable, and it cannot run commands."""
     fix: Callable[[str], list[str]]
     """Command that may run shell commands without asking (setup fixes)."""
     text_env: dict[str, str] = field(default_factory=dict)
@@ -32,25 +41,35 @@ AGENTS: dict[str, Agent] = {
         Agent(
             "claude",
             "claude",
-            text=["claude", "-p", "--tools", ""],
+            text=lambda images: ["claude", "-p", "--tools", ""]
+            if not images
+            else ["claude", "-p", "--tools", "Read", "--allowedTools", "Read", *_add_dirs(images)],
             fix=lambda p: ["claude", "-p", "--dangerously-skip-permissions", p],
         ),
         Agent(
             "codex",
             "codex",
-            text=["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
+            text=lambda images: [
+                "codex",
+                "exec",
+                *[arg for image in images for arg in ("--image", image)],
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "-",
+            ],
             fix=lambda p: ["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", p],
         ),
         Agent(
             "gemini",
             "gemini",
-            text=["gemini", "--approval-mode", "default", "-p", ""],
+            text=lambda images: ["gemini", "--approval-mode", "default", *_include_dirs(images), "-p", ""],
             fix=lambda p: ["gemini", "--yolo", "-p", p],
         ),
         Agent(
             "opencode",
             "opencode",
-            text=["opencode", "run"],
+            text=lambda images: ["opencode", "run", *[arg for image in images for arg in ("-f", image)]],
             fix=lambda p: ["opencode", "run", p],
             text_env={"OPENCODE_CONFIG_CONTENT": NO_TOOLS_OPENCODE},
         ),
@@ -74,13 +93,13 @@ def prompt(name: str, **values: str) -> str:
     return pattern.sub(lambda m: values[m.group(0)[1:-1]], text)
 
 
-def ask(name: str, prompt_text: str, timeout: float = 600) -> str:
+def ask(name: str, prompt_text: str, timeout: float = 600, images: list[str] | None = None) -> str:
     agent = get(name)
     if not installed(name):
         raise AgentError(f"{agent.binary} is not installed")
     try:
         done = subprocess.run(
-            agent.text,
+            agent.text(images or []),
             input=prompt_text,
             capture_output=True,
             text=True,

@@ -23,10 +23,12 @@ class ScriptedAgent:
 
     def __init__(self):
         self.calls: list[str] = []
+        self.images: list[list[str]] = []
         self.process_replies: list[str] = []
 
-    def __call__(self, name, prompt_text, timeout=600):
+    def __call__(self, name, prompt_text, timeout=600, images=None):
         self.calls.append(prompt_text)
+        self.images.append(images or [])
         if "failed to import" in prompt_text:
             card = json.loads(prompt_text.split("Card:\n", 1)[1].split("\n\nAnkiConnect error:", 1)[0])
             card["question"] = card["question"].replace("Rejectme", "").strip()
@@ -297,3 +299,36 @@ def test_pasted_pictures_are_uploaded_and_shown_under_question_and_answer(setup,
     assert '<img src="ankihelper-q.png"' in note["fields"]["Front"]
     assert '<img src="ankihelper-a.png"' in note["fields"]["Back"]
     assert '"question_images": 1' in agent.calls[0]
+
+
+def test_read_pictures_go_to_the_agent_and_end_up_as_source(setup, fake_anki, agent):
+    cfg, anki = setup
+    entry = inbox.Entry.new("", "", "ruby")
+    entry.images = [{"file": "ankihelper-quiz.png", "field": "question", "mode": "read"}]
+    (config.media_dir() / "ankihelper-quiz.png").write_bytes(b"png-bytes")
+    inbox.append(entry)
+    agent.process_replies = [
+        json.dumps({"cards": [{"source_id": entry.id, "question": "Which status code means moved permanently?", "answer": "301", "tags": ["http"], "changed": True}]})
+    ]
+
+    assert batch.run(cfg, anki).imported == 1
+
+    [sent] = agent.images
+    assert sent == [str(config.media_dir() / "ankihelper-quiz.png")]
+    assert str(config.media_dir() / "ankihelper-quiz.png") in agent.calls[0]
+    note = fake_anki.notes[0]
+    assert "<img" not in note["fields"]["Front"], "a read picture is not repeated on the front"
+    assert "Source" in note["fields"]["Back"] and 'src="ankihelper-quiz.png"' in note["fields"]["Back"]
+    assert "ankihelper-quiz.png" in fake_anki.media
+
+
+def test_show_pictures_are_never_sent_to_the_agent(setup, agent):
+    cfg, anki = setup
+    entry = inbox.Entry.new("what does this diagram show", "the request cycle", "ruby")
+    entry.images = [{"file": "ankihelper-d.png", "field": "question", "mode": "show"}]
+    (config.media_dir() / "ankihelper-d.png").write_bytes(b"png-bytes")
+    inbox.append(entry)
+
+    batch.run(cfg, anki)
+
+    assert agent.images == [[]]

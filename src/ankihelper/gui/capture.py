@@ -37,8 +37,10 @@ class CapturePage(Page):
         self.question = TextBox("What do you want to remember?   Ctrl+V pastes a picture", "violet")
         self.answer = TextBox("The answer, a command, a snippet… or a picture", "cyan")
         self.strips = {"question": ImageStrip(), "answer": ImageStrip()}
-        self.question.image_pasted.connect(self.strips["question"].add)
-        self.answer.image_pasted.connect(self.strips["answer"].add)
+        self.question.image_pasted.connect(
+            lambda image: self.strips["question"].add(image, "show" if self.question.toPlainText().strip() else "read")
+        )
+        self.answer.image_pasted.connect(lambda image: self.strips["answer"].add(image, "show"))
         self.topic = QComboBox()
         self.topic.setEditable(True)
         self.topic.addItems(topics(cfg))
@@ -148,11 +150,11 @@ class CapturePage(Page):
     def _save_images(self, entry_id: str) -> list[dict]:
         saved = []
         for field, strip in self.strips.items():
-            for image in strip.images:
+            for image, mode in strip.images:
                 name = f"ankihelper-{entry_id}-{len(saved) + 1}.png"
                 if not image.save(str(config.media_dir() / name), "PNG"):
                     raise OSError(f"could not save pasted picture {name}")
-                saved.append({"file": name, "field": field})
+                saved.append({"file": name, "field": field, "mode": mode})
         return saved
 
     def _flash(self, message: str, color: str, focus) -> None:

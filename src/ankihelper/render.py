@@ -75,3 +75,15 @@ def images_html(files: list[str]) -> str:
         f'<div style="margin-top:0.6em"><img src="{html.escape(name)}" style="max-width:100%; border-radius:8px"></div>'
         for name in files
     )
+
+
+def source_html(files: list[str]) -> str:
+    if not files:
+        return ""
+    pictures = "".join(
+        f'<img src="{html.escape(name)}" style="max-width:45%; border-radius:6px; margin-right:6px">' for name in files
+    )
+    return (
+        '<div style="margin-top:1em; padding-top:0.5em; border-top:1px solid #8885; font-size:0.65em; opacity:0.75">'
+        f"Source<br>{pictures}</div>"
+    )

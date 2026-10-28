@@ -98,21 +98,33 @@ class TextBox(QPlainTextEdit):
             super().insertFromMimeData(source)
 
 
+MODES = {"show": "🖼 Show", "read": "📖 Read"}
+MODE_TIPS = {
+    "show": "Shown on the card as a visual. Click to have the agent read it instead.",
+    "read": "The agent reads the text in it and writes the card from it. Click to show it as a visual instead.",
+}
+
+
 class ImageStrip(QWidget):
-    """Thumbnails of the pictures pasted into one field, each with a remove button."""
+    """Thumbnails of the pictures pasted into one field, each with a Show/Read toggle and a remove button."""
 
     THUMB_HEIGHT = 72
 
     def __init__(self):
         super().__init__()
-        self.images: list[QImage] = []
+        self.images: list[list] = []
+        """[QImage, mode] pairs, mode being "show" or "read"."""
         self.row = QHBoxLayout(self)
         self.row.setContentsMargins(0, 0, 0, 0)
         self.row.setSpacing(8)
         self.hide()
 
-    def add(self, image: QImage) -> None:
-        self.images.append(image)
+    def add(self, image: QImage, mode: str) -> None:
+        self.images.append([image, mode])
+        self._render()
+
+    def _toggle(self, index: int) -> None:
+        self.images[index][1] = "show" if self.images[index][1] == "read" else "read"
         self._render()
 
     def clear(self) -> None:
@@ -128,12 +140,12 @@ class ImageStrip(QWidget):
             item = self.row.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        for index, image in enumerate(self.images):
+        for index, (image, mode) in enumerate(self.images):
             frame = QFrame()
             frame.setObjectName("thumb")
             layout = QHBoxLayout(frame)
             layout.setContentsMargins(4, 4, 4, 4)
-            layout.setSpacing(2)
+            layout.setSpacing(4)
             picture = QLabel()
             picture.setPixmap(
                 QPixmap.fromImage(image).scaledToHeight(self.THUMB_HEIGHT, Qt.TransformationMode.SmoothTransformation)
@@ -144,8 +156,19 @@ class ImageStrip(QWidget):
             remove.setToolTip("Remove picture")
             remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             remove.clicked.connect(lambda _=False, index=index: self._remove(index))
+            toggle = QPushButton(MODES[mode])
+            toggle.setObjectName("modeToggle")
+            toggle.setProperty("mode", mode)
+            toggle.setToolTip(MODE_TIPS[mode])
+            toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            toggle.clicked.connect(lambda _=False, index=index: self._toggle(index))
+            controls = QVBoxLayout()
+            controls.setSpacing(4)
+            controls.addWidget(remove, 0, Qt.AlignmentFlag.AlignRight)
+            controls.addStretch()
+            controls.addWidget(toggle)
             layout.addWidget(picture)
-            layout.addWidget(remove, 0, Qt.AlignmentFlag.AlignTop)
+            layout.addLayout(controls)
             self.row.addWidget(frame)
         self.row.addStretch()
         self.setVisible(bool(self.images))

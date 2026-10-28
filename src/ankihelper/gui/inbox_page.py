@@ -74,8 +74,11 @@ class InboxPage(Page):
             text.addWidget(label(answer, "muted", wrap=True))
         tags = QHBoxLayout()
         tags.addWidget(pill(f"{self.cfg.root_deck}::{entry.topic}", theme.PINK))
-        if entry.images:
-            tags.addWidget(pill(f"🖼 {len(entry.images)}", theme.VIOLET))
+        shown = sum(image.get("mode", "show") == "show" for image in entry.images or [])
+        if shown:
+            tags.addWidget(pill(f"🖼 {shown}", theme.VIOLET))
+        if len(entry.images or []) - shown:
+            tags.addWidget(pill(f"📖 {len(entry.images) - shown} to read", theme.CYAN))
         if entry.cards:
             tags.addWidget(pill(f"{len(entry.cards)} cleaned, retrying import", theme.CYAN))
         if entry.attempts:

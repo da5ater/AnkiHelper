@@ -72,5 +72,26 @@ def test_pasting_a_picture_attaches_it_instead_of_text(window):
     [entry] = inbox.read_all()
     assert entry.question == "", "a picture alone is a valid question"
     [saved] = entry.images
-    assert saved["field"] == "question"
+    assert (saved["field"], saved["mode"]) == ("question", "read"), "a picture with no typed question is read"
     assert QImage(str(config.media_dir() / saved["file"])).size() == image.size()
+
+
+def test_picture_after_typed_question_is_shown_and_can_be_toggled(window):
+    from PySide6.QtCore import QMimeData
+    from PySide6.QtGui import QColor, QImage
+
+    image = QImage(20, 20, QImage.Format.Format_RGB32)
+    image.fill(QColor("teal"))
+    mime = QMimeData()
+    mime.setImageData(image)
+    window.question.setPlainText("what does this diagram show")
+    window.question.insertFromMimeData(mime)
+    window.answer.insertFromMimeData(mime)
+    assert window.strips["question"].images[0][1] == "show"
+    assert window.strips["answer"].images[0][1] == "show"
+
+    window.strips["question"]._toggle(0)
+    QTest.keyClick(window.question, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+
+    [entry] = inbox.read_all()
+    assert [(i["field"], i["mode"]) for i in entry.images] == [("question", "read"), ("answer", "show")]

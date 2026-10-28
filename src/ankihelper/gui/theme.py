@@ -48,6 +48,9 @@ QLabel#error {{ color: {RED}; font-size: 12px; }}
 QLabel#sectionTitle {{ font-size: 16px; font-weight: 700; }}
 
 QFrame#thumb {{ background: {SURFACE_HI}; border: 1px solid {BORDER}; border-radius: 10px; }}
+QPushButton#modeToggle {{ padding: 4px 10px; border-radius: 9px; font-size: 12px; }}
+QPushButton#modeToggle[mode="show"] {{ background: rgba(139, 92, 246, 0.18); border: 1px solid {VIOLET}; color: #c4b5fd; }}
+QPushButton#modeToggle[mode="read"] {{ background: rgba(34, 211, 238, 0.16); border: 1px solid {CYAN}; color: {CYAN}; }}
 QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
 
 QPlainTextEdit, QLineEdit, QComboBox {{

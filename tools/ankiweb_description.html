@@ -1,0 +1,23 @@
+<b>AnkiHelper: fix the card you're studying in one key, and let an AI learn how you like your cards.</b>
+
+This add-on is the Anki side of <a href="https://github.com/da5ater/AnkiHelper">AnkiHelper</a>, a free desktop app that turns notes you dictate or paste while studying into well-formed cards (following Andy Matuschak's "How to write good prompts", Michael Nielsen's "Augmenting long-term memory", SuperMemo's "Twenty rules of formulating knowledge" and Bloom's taxonomy), using an AI agent you already have: Claude Code, Codex, Gemini CLI or OpenCode.
+
+<b>What the add-on does</b>
+<ul>
+<li><b>F</b> on the review screen: say what's wrong with the card ("too long", "ask why instead", "add an example") and it is rewritten in place. Edit → Undo brings the old card back.</li>
+<li><b>Shift+F</b>: flag the card red and keep studying; the next AnkiHelper batch rewrites it.</li>
+<li><b>History of this card</b> (right-click while reviewing): your original note and pictures, the other cards made from it, and the alternative versions you were offered, with one click to switch.</li>
+<li><b>Learns from you.</b> It notices the cards you edit and delete and suggests rules (for example "keep answers to one line") that every future card follows. Nothing becomes a rule without your OK.</li>
+<li>An <b>AnkiHelper</b> button in the top bar opens the app: inbox, card preview and settings.</li>
+</ul>
+
+<b>Requirements</b>
+<ul>
+<li>The AnkiHelper app installed on the same computer: see <a href="https://github.com/da5ater/AnkiHelper#install">the install guide</a>. Run <code>ankihelper install-addon</code> once so the add-on can find it.</li>
+<li><a href="https://ankiweb.net/shared/info/2055492159">AnkiConnect</a> for batches.</li>
+<li>One AI agent CLI (Claude Code, Codex, Gemini CLI or OpenCode), logged in.</li>
+</ul>
+
+Fix and History work on any card with a question and an answer field; cloze cards are not supported yet. Linux is supported today; macOS and Windows support in the app is written but untested.
+
+Source, issues and feedback: <a href="https://github.com/da5ater/AnkiHelper">github.com/da5ater/AnkiHelper</a>

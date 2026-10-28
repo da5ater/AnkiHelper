@@ -19,6 +19,7 @@ from aqt.operations.card import set_card_flag
 from aqt.operations.note import update_note
 from aqt.qt import (
     QAction,
+    QCursor,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -55,8 +56,25 @@ def _clean_env() -> dict[str, str]:
     return env
 
 
+NOT_INSTALLED = (
+    "The AnkiHelper app is not installed or could not be found. "
+    "Install it from https://github.com/da5ater/AnkiHelper and run `ankihelper install-addon`."
+)
+
+
 def _run(action: str, payload: dict) -> dict:
-    done = subprocess.run(
+    try:
+        done = _subprocess(action, payload)
+    except FileNotFoundError:
+        return {"error": NOT_INSTALLED}
+    try:
+        return json.loads(done.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": (done.stderr or done.stdout or f"ankihelper exited {done.returncode}").strip()[-500:]}
+
+
+def _subprocess(action: str, payload: dict):
+    return subprocess.run(
         [*_command(), "anki", action],
         input=json.dumps(payload),
         capture_output=True,
@@ -64,10 +82,6 @@ def _run(action: str, payload: dict) -> dict:
         timeout=900,
         env=_clean_env(),
     )
-    try:
-        return json.loads(done.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        return {"error": (done.stderr or done.stdout or f"ankihelper exited {done.returncode}").strip()[-500:]}
 
 
 def call(action: str, payload: dict, on_done=None) -> None:
@@ -354,7 +368,52 @@ def _context_menu(reviewer, menu: QMenu) -> None:
 
 
 def _detached(*args: str) -> None:
-    subprocess.Popen([*_command(), *args], env=_clean_env(), start_new_session=True)
+    try:
+        subprocess.Popen([*_command(), *args], env=_clean_env(), start_new_session=True)
+    except FileNotFoundError:
+        showWarning(NOT_INSTALLED)
+
+
+def open_app() -> None:
+    _detached("setup", "inbox")
+
+
+def _toolbar(links: list, toolbar) -> None:
+    links.append(toolbar.create_link("ankihelper", "AnkiHelper", open_app, tip="Open AnkiHelper: inbox, preview, settings", id="ankihelper"))
+
+
+BUTTON_JS = """
+(function () {
+  if (document.getElementById("ankihelper-button")) return;
+  var editCell = document.querySelector("#innertable td.stat");
+  if (!editCell) return;
+  var button = document.createElement("button");
+  button.id = "ankihelper-button";
+  button.title = "AnkiHelper: fix this card (F), fix it in the next batch (Shift+F) or see its history";
+  button.textContent = "✎ AnkiHelper";
+  button.onclick = function () { pycmd("ankihelper:menu"); };
+  editCell.appendChild(button);
+})();
+"""
+
+
+def _add_review_button(_card=None) -> None:
+    mw.reviewer.bottom.web.eval(BUTTON_JS)
+
+
+def _review_menu() -> None:
+    menu = QMenu(mw)
+    menu.addAction("Fix this card now  (F)", lambda: fix_card(later=False))
+    menu.addAction("Fix it in the next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("History of this card", show_history)
+    menu.exec(QCursor.pos())
+
+
+def _on_js_message(handled: tuple, message: str, context) -> tuple:
+    if message == "ankihelper:menu":
+        _review_menu()
+        return (True, None)
+    return handled
 
 
 def _menu() -> None:
@@ -362,7 +421,7 @@ def _menu() -> None:
     for title, handler in (
         ("Fix current card  (F)", lambda: fix_card(later=False)),
         ("History of current card", show_history),
-        ("Open AnkiHelper", lambda: _detached("setup", "inbox")),
+        ("Open AnkiHelper", open_app),
         ("Run a batch now", lambda: _detached("batch")),
     ):
         action = QAction(title, mw)
@@ -372,6 +431,10 @@ def _menu() -> None:
 
 
 gui_hooks.main_window_did_init.append(_menu)
+gui_hooks.top_toolbar_did_init_links.append(_toolbar)
+gui_hooks.reviewer_did_show_question.append(_add_review_button)
+gui_hooks.reviewer_did_show_answer.append(_add_review_button)
+gui_hooks.webview_did_receive_js_message.append(_on_js_message)
 gui_hooks.profile_did_open.append(lambda: _watch_edits(mw.col))
 gui_hooks.state_shortcuts_will_change.append(_shortcuts)
 gui_hooks.reviewer_will_show_context_menu.append(_context_menu)

@@ -20,6 +20,8 @@ class Entry:
     error: str | None = None
     cards: list[dict] | None = None
     """Cleaned cards still waiting to be imported, so a retry does not ask the agent again."""
+    language: str | None = None
+    """Language the cards should be written in; None means the configured default."""
     images: list[dict] | None = None
     """Pasted pictures: {"file": name in config.media_dir(), "field": "question" | "answer", "mode": "show" | "read"}.
     "show" pictures go on the card as visuals; "read" pictures hold the text the agent turns into the card."""

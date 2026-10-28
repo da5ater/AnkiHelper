@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
 
@@ -58,6 +58,21 @@ class Page(QWidget):
 
     def shown(self) -> None:
         """Called each time the page becomes visible."""
+
+
+LANGUAGES = [
+    "English", "Arabic", "French", "German", "Spanish", "Italian", "Portuguese", "Turkish",
+    "Russian", "Chinese", "Japanese", "Korean", "Hindi", "Urdu", "Persian", "Dutch",
+]
+
+
+def language_box(current: str) -> QComboBox:
+    """Editable, so any language the agent understands can be typed in."""
+    box = QComboBox()
+    box.setEditable(True)
+    box.addItems(LANGUAGES)
+    box.setCurrentText(current)
+    return box
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}

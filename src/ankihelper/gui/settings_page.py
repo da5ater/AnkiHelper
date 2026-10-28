@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QButtonGroup, QFormLayout, QGridLayout, QLineEdit,
 from .. import agents, dictation
 from ..config import Config
 from . import theme
-from .common import Page, label
+from .common import Page, label, language_box
 
 AGENT_BLURBS = {
     "claude": "Claude Code",
@@ -62,6 +62,13 @@ class SettingsPage(Page):
         self.dictation_status = label("", "faint", wrap=True)
         layout.addWidget(self.dictation_status)
         self._update_dictation_status()
+
+        layout.addSpacing(8)
+        layout.addWidget(label("Card language", "sectionTitle"))
+        layout.addWidget(label("Cards are written in this language whatever you dictate or paste. Capture can override it per card.", "muted", wrap=True))
+        self.language = language_box(cfg.language)
+        self.language.currentTextChanged.connect(lambda text: self._set_text("language", text))
+        layout.addWidget(self.language)
 
         layout.addSpacing(8)
         layout.addWidget(label("Anki", "sectionTitle"))

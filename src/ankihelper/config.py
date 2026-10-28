@@ -43,7 +43,9 @@ class Config:
     anki_url: str = "http://127.0.0.1:8765"
     root_deck: str = "manual"
     note_type: str = "Basic+"
+    language: str = "English"
     last_topic: str = ""
+    last_language: str = ""
     known_topics: list[str] = field(default_factory=list)
 
     @classmethod

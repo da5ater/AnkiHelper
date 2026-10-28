@@ -13,7 +13,14 @@ Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbo
 
 ### What the agent does to a card
 
-It treats your dictation as an idea, not a transcript. The question is rewritten to be clear without changing what you asked, and code becomes real code in a fenced block. Answers stay as short as you said them. Say "explain" in a card to get up to three "why" bullets, and "split" to turn it into several atomic cards. When the agent corrects a wrong answer, writes a missing one, or changes the meaning of the question, the card gets the `changed` tag.
+You give it a seed, not a finished card. The agent first decides what kind of entry it is:
+
+- **A note** is already one clear question ("how do I generate a Home controller with one action?"). The agent keeps your question, fixes dictation mistakes, wording and code, and corrects a wrong answer. You get one card.
+- **A seed** is a topic or heading plus the material: a pasted paragraph, a list, a screenshot. The agent *questionizes* it, writing the questions a good teacher would put on the exam. It follows Andy Matuschak's [How to write good prompts](https://andymatuschak.org/prompts/), Michael Nielsen's [Augmenting long-term memory](http://augmentingcognition.com/ltm.html) and Piotr Wozniak's [Twenty rules of formulating knowledge](https://www.supermemo.com/en/blog/twenty-rules-of-formulating-knowledge). Each card asks for one thing and has one consistent answer, with the context in the question. A list becomes one card per item instead of "list all six", and "why" and "what problem does it solve" questions win over trivia. A seed makes at most 8 cards, all sharing a `seed-<id>` tag.
+
+Cards are written in the **card language** (Settings, default English) whatever language you dictated or pasted in. The Capture page can override it for one card. Code, commands and technical terms are never translated.
+
+Answers stay short. Say "explain" in a card to get up to three "why" bullets. When the agent corrects a wrong answer, writes a missing one, changes the meaning of the question, or questionizes a seed, the card gets the `changed` tag.
 
 ### When things fail
 
@@ -46,6 +53,7 @@ Setup tells you what's missing, and "Fix with agent" can install the shortcuts a
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `claude` | `claude`, `codex`, `gemini` or `opencode`. `ankihelper batch --agent codex` overrides it for one run. |
+| `language` | `English` | Language cards are written in; Capture can override it per card |
 | `dictation` | `voxtype` on Linux, `system` elsewhere | `voxtype`, `system` or `none` |
 | `anki_url` | `http://127.0.0.1:8765` | AnkiConnect address |
 | `root_deck` | `manual` | Cards go to `<root_deck>::<topic>` |

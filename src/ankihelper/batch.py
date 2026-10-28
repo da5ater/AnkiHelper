@@ -11,6 +11,7 @@ from .inbox import Entry
 REPAIR_ATTEMPTS = 2
 CLEAN_ATTEMPTS = 2
 ENTRIES_PER_AGENT_CALL = 20
+MAX_CARDS_PER_ENTRY = 8
 SOURCE_TAG = "manual_voice"
 
 
@@ -78,6 +79,11 @@ def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dic
         card = Card.parse(raw)
         if card.source_id in ids:
             cards.setdefault(card.source_id, []).append(card)
+    for source_id, group in cards.items():
+        del group[MAX_CARDS_PER_ENTRY:]
+        if len(group) > 1:
+            for card in group:
+                card.tags.append(f"seed-{source_id}")
     skipped = {}
     for raw in raw_skipped:
         if not isinstance(raw, dict):
@@ -92,7 +98,7 @@ def _media_paths(files: list[str]) -> list[str]:
     return [str(config.media_dir() / name) for name in files]
 
 
-def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict[str, str]]:
+def clean(agent: str, entries: list[Entry], language: str) -> tuple[dict[str, list[Card]], dict[str, str]]:
     rows = []
     to_read: list[str] = []
     for e in entries:
@@ -105,6 +111,7 @@ def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict
                     "question": e.question,
                     "answer": e.answer,
                     "topic": e.topic,
+                    **({"language": e.language} if e.language else {}),
                     "question_images": len(e.images_for("question", "show")),
                     "answer_images": len(e.images_for("answer", "show")),
                     "question_read_images": read["question"],
@@ -112,7 +119,7 @@ def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict
                 }
             )
         )
-    text = agents.prompt("process", entries="\n".join(rows))
+    text = agents.prompt("process", entries="\n".join(rows), language=language)
     for attempt in range(CLEAN_ATTEMPTS):
         try:
             reply = agents.ask(agent, text, images=to_read)
@@ -169,7 +176,7 @@ def run(cfg: Config, anki: AnkiConnect, agent: str | None = None) -> Summary:
         lock.release()
 
 
-def _clean_all(agent: str, entries: list[Entry], summary: Summary) -> tuple[dict[str, list[Card]], dict[str, str]]:
+def _clean_all(agent: str, language: str, entries: list[Entry], summary: Summary) -> tuple[dict[str, list[Card]], dict[str, str]]:
     cards = {e.id: [Card.parse(c) for c in e.cards] for e in entries if e.cards}
     fresh = [e for e in entries if not e.cards]
     skipped: dict[str, str] = {}
@@ -177,7 +184,7 @@ def _clean_all(agent: str, entries: list[Entry], summary: Summary) -> tuple[dict
     for start in range(0, len(fresh), ENTRIES_PER_AGENT_CALL):
         chunk = fresh[start : start + ENTRIES_PER_AGENT_CALL]
         try:
-            chunk_cards, chunk_skipped = clean(agent, chunk)
+            chunk_cards, chunk_skipped = clean(agent, chunk, language)
         except agents.AgentError as error:
             errors.append(error)
             summary.failed.update({e.id: str(error) for e in chunk})
@@ -203,7 +210,7 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str) -> Summary:
     if fields[:2] != ["Front", "Back"]:
         raise SetupProblem(f"Note type {cfg.note_type!r} must have fields Front, Back (has {fields})")
 
-    cards, skipped = _clean_all(agent, entries, summary)
+    cards, skipped = _clean_all(agent, cfg.language, entries, summary)
     done: set[str] = set()
     archived: list[dict] = []
     leftovers: dict[str, list[dict]] = {}

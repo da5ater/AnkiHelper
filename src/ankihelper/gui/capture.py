@@ -6,7 +6,7 @@ from .. import config, dictation, inbox
 from ..anki import AnkiConnect, AnkiError, AnkiUnreachable
 from ..config import Config
 from . import theme
-from .common import ImageStrip, Page, TextBox, label, restyle
+from .common import ImageStrip, Page, TextBox, label, language_box, restyle
 
 MIC_ICONS = {"idle": "🎙", "recording": "⏺", "transcribing": "✍"}
 
@@ -72,11 +72,21 @@ class CapturePage(Page):
             self.layout_.addWidget(label(title, "fieldLabel"))
             self.layout_.addWidget(widget, stretch)
             self.layout_.addWidget(self.strips[field])
-        self.layout_.addWidget(label("TOPIC", "fieldLabel"))
-        topic_row = QVBoxLayout()
-        topic_row.setSpacing(4)
-        topic_row.addWidget(self.topic)
-        topic_row.addWidget(self.deck_hint)
+        self.language = language_box(cfg.last_language or cfg.language)
+        self.language.setToolTip(f"Language the agent writes this card in. Default: {cfg.language} (Settings)")
+        topic_col, language_col = QVBoxLayout(), QVBoxLayout()
+        for column in (topic_col, language_col):
+            column.setSpacing(4)
+        topic_col.addWidget(label("TOPIC", "fieldLabel"))
+        topic_col.addWidget(self.topic)
+        topic_col.addWidget(self.deck_hint)
+        language_col.addWidget(label("CARD LANGUAGE", "fieldLabel"))
+        language_col.addWidget(self.language)
+        language_col.addStretch()
+        topic_row = QHBoxLayout()
+        topic_row.setSpacing(14)
+        topic_row.addLayout(topic_col, 3)
+        topic_row.addLayout(language_col, 1)
         self.layout_.addLayout(topic_row)
 
         bottom = QHBoxLayout()
@@ -133,9 +143,12 @@ class CapturePage(Page):
         if not topic:
             return self._flash("Pick a topic.", theme.RED, self.topic)
         entry = inbox.Entry.new(question, self.answer.toPlainText(), topic)
+        language = self.language.currentText().strip()
+        entry.language = language if language and language != self.cfg.language else None
         entry.images = self._save_images(entry.id) or None
         inbox.append(entry)
         self.cfg.last_topic = topic
+        self.cfg.last_language = language
         self.cfg.save()
         self.saved.emit(entry.id)
         if self.close_after_save:

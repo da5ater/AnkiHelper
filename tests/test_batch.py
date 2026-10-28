@@ -332,3 +332,33 @@ def test_show_pictures_are_never_sent_to_the_agent(setup, agent):
     batch.run(cfg, anki)
 
     assert agent.images == [[]]
+
+
+def test_cards_are_written_in_the_configured_language_with_per_card_override(setup, agent):
+    cfg, anki = setup
+    cfg.language = "French"
+    capture("what is a gem", "a ruby library", "ruby")
+    arabic = inbox.Entry.new("ما هو الـ gem", "مكتبة روبي", "ruby")
+    arabic.language = "Arabic"
+    inbox.append(arabic)
+
+    batch.run(cfg, anki)
+
+    prompt_text = agent.calls[0]
+    assert "Write every question and answer in French" in prompt_text
+    assert '"language": "Arabic"' in prompt_text
+
+
+def test_a_seed_becomes_at_most_eight_cards_sharing_a_seed_tag(setup, fake_anki, agent):
+    cfg, anki = setup
+    entry = capture("well architected design principles", "many principles", "DevOps::AWS")
+    agent.process_replies = [
+        json.dumps(
+            {"cards": [{"source_id": entry.id, "question": f"principle {n}?", "answer": "x", "tags": ["aws"], "changed": True} for n in range(12)]}
+        )
+    ]
+
+    summary = batch.run(cfg, anki)
+
+    assert summary.imported == batch.MAX_CARDS_PER_ENTRY
+    assert all(f"seed-{entry.id}" in note["tags"] for note in fake_anki.notes)

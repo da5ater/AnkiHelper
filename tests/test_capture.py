@@ -95,3 +95,12 @@ def test_picture_after_typed_question_is_shown_and_can_be_toggled(window):
 
     [entry] = inbox.read_all()
     assert [(i["field"], i["mode"]) for i in entry.images] == [("question", "read"), ("answer", "show")]
+
+
+def test_language_override_is_saved_only_when_it_differs_from_the_default(window):
+    window.question.setPlainText("ما هو الـ gem")
+    window.language.setCurrentText("Arabic")
+    QTest.keyClick(window.question, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+    [entry] = inbox.read_all()
+    assert entry.language == "Arabic"
+    assert Config.load().last_language == "Arabic"

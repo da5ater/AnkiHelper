@@ -9,7 +9,7 @@ def reply_with(question: str, source_id: str) -> str:
     return json.dumps({"cards": [{"source_id": source_id, "question": question, "answer": "a", "tags": [], "changed": False}]})
 
 
-def test_redo_sends_previous_cards_and_feedback(monkeypatch):
+def test_redo_all_sends_the_kept_cards_and_feedback(monkeypatch):
     entry = inbox.Entry.new("what is rack", "web server interface", "ruby")
     prompts = []
 
@@ -27,7 +27,36 @@ def test_redo_sends_previous_cards_and_feedback(monkeypatch):
     assert '"revision": {' not in prompts[0]
     assert '"feedback": "ask why, not what"' in prompts[1]
     assert '"question": "version 1"' in prompts[1]
-    assert session.rounds[0].feedback == "ask why, not what"
+    assert session.feedback == ["all cards: ask why, not what"]
+
+
+def _session_with(entry, *questions):
+    return review.Review(entry, [review.Slot(review.batch.Card(entry.id, q, "a", [], False)) for q in questions])
+
+
+def test_changing_one_card_rewrites_only_that_card(monkeypatch):
+    entry = inbox.Entry.new("aws security services", "", "DevOps::AWS")
+    session = _session_with(entry, "What are the five areas?", "Which services handle IAM?", "What is KMS?")
+    session.slots[0].status = review.ACCEPTED
+    seen = []
+    reply = {"cards": [{"question": "Which services handle IAM, and why each?", "answer": "- **IAM**: who can do what", "tags": ["aws"]}]}
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or json.dumps(reply))
+
+    review.revise(Config(), session, 1, "add bold signaling and why for each one")
+
+    assert [s.card.question for s in session.slots] == ["What are the five areas?", "Which services handle IAM, and why each?", "What is KMS?"]
+    assert session.slots[0].status == review.ACCEPTED, "other cards keep their verdict"
+    assert session.slots[1].card.source_id == entry.id
+    assert "add bold signaling and why for each one" in seen[0]
+    assert "Which services handle IAM?" in seen[0] and "What is KMS?" in seen[0]
+    assert session.feedback == ["card 2 (Which services handle IAM?): add bold signaling and why for each one"]
+
+
+def test_removed_cards_are_left_out_of_what_is_kept():
+    entry = inbox.Entry.new("q", "a", "ruby")
+    session = _session_with(entry, "one", "two", "three")
+    session.slots[1].status = review.REMOVED
+    assert [c.question for c in session.kept()] == ["one", "three"]
 
 
 def test_kept_cards_are_imported_as_approved_without_asking_the_agent(fake_anki, monkeypatch):
@@ -63,31 +92,37 @@ def test_saved_rules_reach_the_card_writing_prompt(monkeypatch):
 
 def test_card_specific_feedback_gives_no_rule(monkeypatch):
     entry = inbox.Entry.new("q", "a", "ruby")
-    session = review.Review(entry, [review.Round([], "the year is wrong")])
+    session = _session_with(entry, "one")
+    session._record("the year is wrong")
     monkeypatch.setattr(agents, "ask", lambda *a, **k: "NONE\n")
     assert review.suggest_rule(Config(), session) is None
     monkeypatch.setattr(agents, "ask", lambda *a, **k: "Prefer why questions.\n")
     assert review.suggest_rule(Config(), session) == "Prefer why questions."
 
 
-def test_versions_offer_other_strategies_and_can_replace_or_extend_the_cards(monkeypatch):
-    entry = inbox.Entry.new("aws security pillar services", "iam, cloudtrail, guardduty", "DevOps::AWS")
-    session = review.Review(entry, [review.Round([review.batch.Card(entry.id, "Original?", "a", [], False)])])
+def test_versions_belong_to_one_card_and_can_replace_it_or_be_added(monkeypatch):
+    entry = inbox.Entry.new("aws security pillar services", "iam, cloudtrail", "DevOps::AWS")
+    session = _session_with(entry, "Which service manages access?", "Which service logs API calls?")
     reply = {
         "versions": [
-            {"style": "Application / scenario", "why": "ties it to a real situation", "cards": [{"question": "Which service audits API calls?", "answer": "CloudTrail", "tags": ["aws"]}]},
-            {"style": "Reverse", "why": "recall the name from its job", "cards": [{"question": "q1", "answer": "a"}, {"question": "q2", "answer": "b"}]},
+            {"style": "Application / scenario", "why": "ties it to a real situation", "cards": [{"question": "A Lambda must read one bucket. Which service?", "answer": "IAM"}]},
+            {"style": "Reverse", "why": "recall the name from its job", "cards": [{"question": "Who decides who can do what?", "answer": "IAM"}]},
             "garbage",
         ]
     }
     seen = []
     monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or json.dumps(reply))
 
-    found = review.versions(Config(), session)
+    found = review.versions(Config(), session, 0)
 
     assert [v.style for v in found] == ["Application / scenario", "Reverse"]
-    assert all(c.source_id == entry.id for v in found for c in v.cards)
-    assert "Original?" in seen[0] and "Application / scenario" in seen[0]
-    assert [c.question for c in review.choose(session, found[0], add=False)] == ["Which service audits API calls?"]
-    assert [c.question for c in review.choose(session, found[1], add=True)] == ["Which service audits API calls?", "q1", "q2"]
-    assert session.rounds[-2].feedback == "picked the Reverse version in addition"
+    assert session.slots[0].versions == found and session.slots[1].versions == []
+    assert "Which service manages access?" in seen[0] and "Which service logs API calls?" in seen[0]
+    review.use_version(session, 0, found[0], add=False)
+    assert [s.card.question for s in session.slots] == ["A Lambda must read one bucket. Which service?", "Which service logs API calls?"]
+    review.use_version(session, 0, found[1], add=True)
+    assert [s.card.question for s in session.slots] == [
+        "A Lambda must read one bucket. Which service?",
+        "Who decides who can do what?",
+        "Which service logs API calls?",
+    ]

@@ -15,35 +15,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 REPO = "da5ater/AnkiHelper"
 
 
-@dataclass
-class Round:
-    cards: list[batch.Card]
-    feedback: str = ""
-
-
-@dataclass
-class Review:
-    entry: Entry
-    rounds: list[Round] = field(default_factory=list)
-
-    @property
-    def cards(self) -> list[batch.Card]:
-        return self.rounds[-1].cards if self.rounds else []
-
-
-def generate(cfg: Config, review: Review, feedback: str = "") -> list[batch.Card]:
-    """First preview when feedback is empty; otherwise a redo of the latest cards."""
-    revisions = None
-    if feedback:
-        review.rounds[-1].feedback = feedback
-        revisions = {review.entry.id: {"previous_cards": [asdict(c) for c in review.cards], "feedback": feedback}}
-    cards, skipped = batch.clean(cfg.agent, [review.entry], cfg.language, revisions)
-    if review.entry.id in skipped:
-        raise agents.AgentError(f"The agent skipped this note: {skipped[review.entry.id]}")
-    if not cards.get(review.entry.id):
-        raise agents.AgentError("The agent returned no card for this note")
-    review.rounds.append(Round(cards[review.entry.id]))
-    return review.cards
+PENDING, ACCEPTED, REMOVED = "pending", "accepted", "removed"
 
 
 @dataclass
@@ -53,18 +25,111 @@ class Version:
     cards: list[batch.Card]
 
 
-def versions(cfg: Config, review: Review) -> list[Version]:
-    """Alternative ways to ask the same knowledge, each built on a different prompt-writing strategy."""
-    entry = review.entry
+@dataclass
+class Slot:
+    """One card on the review canvas, with the learner's verdict and any alternative versions asked for."""
+
+    card: batch.Card
+    status: str = PENDING
+    versions: list[Version] = field(default_factory=list)
+
+
+@dataclass
+class Review:
+    entry: Entry
+    slots: list[Slot] = field(default_factory=list)
+    feedback: list[str] = field(default_factory=list)
+    """Everything the learner asked for, in order; the raw material for a personal rule."""
+    history: list[list[dict]] = field(default_factory=list)
+    """The cards as they were before each change."""
+
+    @property
+    def cards(self) -> list[batch.Card]:
+        return [slot.card for slot in self.slots]
+
+    def kept(self) -> list[batch.Card]:
+        return [slot.card for slot in self.slots if slot.status != REMOVED]
+
+    def _record(self, feedback: str) -> None:
+        self.history.append([asdict(c) for c in self.cards])
+        self.feedback.append(feedback)
+
+
+def _own(review: Review, cards: list[batch.Card]) -> list[batch.Card]:
+    for card in cards:
+        card.source_id = review.entry.id
+    return cards
+
+
+def _retag(review: Review) -> None:
+    tag = f"seed-{review.entry.id}"
+    for card in review.cards:
+        if len(review.slots) > 1 and tag not in card.tags:
+            card.tags.append(tag)
+
+
+def _entry_json(entry: Entry) -> str:
+    return json.dumps(
+        {"id": entry.id, "question": entry.question, "answer": entry.answer, "topic": entry.topic}, ensure_ascii=False
+    )
+
+
+def _read_images(entry: Entry) -> list[str]:
+    return [str(config.media_dir() / name) for field in ("question", "answer") for name in entry.images_for(field, "read")]
+
+
+def generate(cfg: Config, review: Review, feedback: str = "") -> list[batch.Card]:
+    """First preview when feedback is empty; otherwise redo the whole set from the cards the learner kept."""
+    revisions = None
+    if feedback:
+        revisions = {review.entry.id: {"previous_cards": [asdict(c) for c in review.kept()], "feedback": feedback}}
+    cards, skipped = batch.clean(cfg.agent, [review.entry], cfg.language, revisions)
+    if review.entry.id in skipped:
+        raise agents.AgentError(f"The agent skipped this note: {skipped[review.entry.id]}")
+    if not cards.get(review.entry.id):
+        raise agents.AgentError("The agent returned no card for this note")
+    if feedback:
+        review._record(f"all cards: {feedback}")
+    review.slots = [Slot(card) for card in cards[review.entry.id]]
+    return review.cards
+
+
+def revise(cfg: Config, review: Review, index: int, feedback: str) -> list[batch.Card]:
+    """Rewrite one card from feedback; it may come back as up to 3 cards that take its place."""
+    target = review.slots[index].card
+    others = [asdict(c) for i, c in enumerate(review.cards) if i != index]
+    text = agents.prompt(
+        "card",
+        language=review.entry.language or cfg.language,
+        rules=config.personal_rules() or "(none yet)",
+        entry=_entry_json(review.entry),
+        card=json.dumps(asdict(target), ensure_ascii=False),
+        others=json.dumps(others, ensure_ascii=False),
+        feedback=feedback,
+    )
+    reply = agents.extract_json(agents.ask(cfg.agent, text, images=_read_images(review.entry)))
+    raw = reply.get("cards")
+    if not isinstance(raw, list) or not raw:
+        raise agents.AgentError("The agent returned no rewritten card")
+    cards = _own(review, [batch.Card.parse(c) for c in raw[:3]])
+    review._record(f"card {index + 1} ({target.question}): {feedback}")
+    review.slots[index : index + 1] = [Slot(card) for card in cards]
+    _retag(review)
+    return cards
+
+
+def versions(cfg: Config, review: Review, index: int) -> list[Version]:
+    """Alternative ways to ask one card, each built on a different prompt-writing strategy."""
+    slot = review.slots[index]
     text = agents.prompt(
         "versions",
-        language=entry.language or cfg.language,
+        language=review.entry.language or cfg.language,
         rules=config.personal_rules() or "(none yet)",
-        entry=json.dumps({"id": entry.id, "question": entry.question, "answer": entry.answer, "topic": entry.topic}, ensure_ascii=False),
-        cards=json.dumps([asdict(c) for c in review.cards], ensure_ascii=False),
+        entry=_entry_json(review.entry),
+        cards=json.dumps([asdict(slot.card)], ensure_ascii=False),
+        others=json.dumps([asdict(c) for i, c in enumerate(review.cards) if i != index], ensure_ascii=False),
     )
-    images = [str(config.media_dir() / name) for field in ("question", "answer") for name in entry.images_for(field, "read")]
-    reply = agents.extract_json(agents.ask(cfg.agent, text, images=images))
+    reply = agents.extract_json(agents.ask(cfg.agent, text, images=_read_images(review.entry)))
     raw_versions = reply.get("versions")
     if not isinstance(raw_versions, list) or not raw_versions:
         raise agents.AgentError("The agent returned no versions")
@@ -72,32 +137,36 @@ def versions(cfg: Config, review: Review) -> list[Version]:
     for raw in raw_versions:
         if not isinstance(raw, dict) or not isinstance(raw.get("cards"), list):
             continue
-        cards = [batch.Card.parse({**c, "source_id": entry.id}) for c in raw["cards"]][: batch.MAX_CARDS_PER_ENTRY]
-        if len(cards) > 1:
-            for card in cards:
-                card.tags.append(f"seed-{entry.id}")
+        cards = _own(review, [batch.Card.parse({**c, "source_id": review.entry.id}) for c in raw["cards"][:3]])
         if cards:
             found.append(Version(str(raw.get("style", "Alternative")), str(raw.get("why", "")), cards))
     if not found:
         raise agents.AgentError("The agent's versions had no usable cards")
+    slot.versions = found
     return found
 
 
-def choose(review: Review, version: Version, add: bool) -> list[batch.Card]:
-    """Make a version the current cards, or add its cards to the current ones."""
-    review.rounds[-1].feedback = f"picked the {version.style} version" + (" in addition" if add else "")
-    cards = (review.cards + version.cards if add else version.cards)[: batch.MAX_CARDS_PER_ENTRY]
-    review.rounds.append(Round(cards))
-    return cards
+def use_version(review: Review, index: int, version: Version, add: bool) -> None:
+    """Swap a card for one of its versions, or add the version's cards right after it."""
+    slot = review.slots[index]
+    review._record(f"card {index + 1} ({slot.card.question}): picked the {version.style} version" + (" in addition" if add else ""))
+    slot.versions = []
+    new = [Slot(card) for card in version.cards]
+    if add:
+        review.slots[index + 1 : index + 1] = new
+    else:
+        review.slots[index : index + 1] = new
+    del review.slots[batch.MAX_CARDS_PER_ENTRY + 4 :]
+    _retag(review)
 
 
 def suggest_rule(cfg: Config, review: Review) -> str | None:
     history = "\n\n".join(
-        f"Round {n}:\n" + json.dumps([asdict(c) for c in r.cards], ensure_ascii=False) + (f"\nFeedback: {r.feedback}" if r.feedback else "")
-        for n, r in enumerate(review.rounds, start=1)
+        f"Cards before change {n}:\n{json.dumps(cards, ensure_ascii=False)}\nThen the learner said: {said}"
+        for n, (cards, said) in enumerate(zip(review.history, review.feedback), start=1)
     )
-    entry = json.dumps({"question": review.entry.question, "answer": review.entry.answer}, ensure_ascii=False)
-    reply = agents.ask(cfg.agent, agents.prompt("rule", entry=entry, history=history), timeout=300).strip()
+    history += "\n\nCards now:\n" + json.dumps([asdict(c) for c in review.kept()], ensure_ascii=False)
+    reply = agents.ask(cfg.agent, agents.prompt("rule", entry=_entry_json(review.entry), history=history), timeout=300).strip()
     rule = reply.splitlines()[-1].strip().strip('"') if reply else ""
     return None if not rule or rule.upper() == "NONE" else rule
 

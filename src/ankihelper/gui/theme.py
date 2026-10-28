@@ -47,6 +47,18 @@ QLabel#faint {{ color: {FAINT}; font-size: 12px; }}
 QLabel#error {{ color: {RED}; font-size: 12px; }}
 QLabel#sectionTitle {{ font-size: 16px; font-weight: 700; }}
 
+QFrame#node {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
+QFrame#node[kind="source"] {{ background: {SURFACE_HI}; border: 2px solid rgba(251, 191, 36, 0.55); }}
+QFrame#node[kind="card"][state="accepted"] {{ border: 2px solid {GREEN}; }}
+QFrame#node[kind="card"][state="removed"] {{ background: {BG}; border: 1px dashed {FAINT}; }}
+QFrame#node[kind="version"] {{ background: rgba(34, 211, 238, 0.06); border: 1px dashed {CYAN}; }}
+QFrame#node[kind="placeholder"] {{ border: 1px dashed {BORDER}; }}
+QPushButton#nodeAction {{ padding: 6px 12px; border-radius: 10px; font-size: 13px; font-weight: 700; }}
+QPushButton#nodeAction[kind="accept"] {{ color: {GREEN}; }}
+QPushButton#nodeAction[kind="accept"][on="true"] {{ background: rgba(52, 211, 153, 0.18); border-color: {GREEN}; }}
+QPushButton#nodeAction[kind="remove"] {{ color: {MUTED}; }}
+QPushButton#nodeAction[kind="remove"]:hover {{ color: {RED}; border-color: {RED}; }}
+QPushButton#nodeAction[kind="go"] {{ background: {VIOLET}; border: none; color: white; }}
 QFrame#thumb {{ background: {SURFACE_HI}; border: 1px solid {BORDER}; border-radius: 10px; }}
 QPushButton#modeToggle {{ padding: 4px 10px; border-radius: 9px; font-size: 12px; }}
 QPushButton#modeToggle[mode="show"] {{ background: rgba(139, 92, 246, 0.18); border: 1px solid {VIOLET}; color: #c4b5fd; }}

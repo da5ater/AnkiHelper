@@ -106,6 +106,7 @@ class SettingsPage(Page):
         start_row = QHBoxLayout()
         self.job_rule = QComboBox()
         self.job_rule.setEditable(True)
+        self.job_rule.lineEdit().setPlaceholderText("Pick one of your rules, or type one")
         self.job_scope = QComboBox()
         for key, (title, _query) in jobs.SCOPES.items():
             self.job_scope.addItem(title, key)

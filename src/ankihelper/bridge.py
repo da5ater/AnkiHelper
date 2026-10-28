@@ -18,6 +18,8 @@ from .config import Config
 from .inbox import Entry
 
 FIXED_TAG = "ah::fixed"
+RECENT_WRITE_SECONDS = 120
+CLOZE = 1
 
 
 def text_of(fragment: str) -> str:
@@ -30,60 +32,67 @@ def _images_in(fragment: str) -> str:
 
 
 def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, feedback: str) -> dict:
-    """New question and answer HTML for a note, from the learner's feedback. Works for any note in Anki."""
+    """New question and answer HTML for a note, from the learner's feedback.
+
+    The card as it is in Anki now is what gets rewritten, so hand edits and added pictures survive;
+    AnkiHelper's own record only supplies the learner's original note as context."""
     record = notes.find(note_id)
     entry = Entry(**record["entry"]) if record else None
-    current = record["card"] if record else {"question": text_of(question_html), "answer": text_of(answer_html)}
+    current = {"question": text_of(question_html), "answer": text_of(answer_html)}
     original = {"question": entry.question, "answer": entry.answer} if entry else {}
     text = agents.prompt(
         "fix_note",
         language=(entry.language if entry and entry.language else cfg.language),
         rules=config.personal_rules() or "(none yet)",
         original=json.dumps(original, ensure_ascii=False),
-        card=json.dumps({"question": current["question"], "answer": current["answer"]}, ensure_ascii=False),
+        card=json.dumps(current, ensure_ascii=False),
         feedback=feedback,
     )
     reply = agents.extract_json(agents.ask(cfg.agent, text))
-    card = Card.parse({**(record["card"] if record else {}), **reply, "source_id": entry.id if entry else "", "changed": True})
+    base = record["card"] if record else {}
+    card = Card.parse({**base, **reply, "source_id": entry.id if entry else "", "changed": True})
+    front = render.question_html(card.question) + _images_in(question_html)
+    back = render.to_html(card.answer) + _images_in(answer_html)
     if entry:
-        front, back = card_html(card, entry)
         notes.record(note_id, entry, card)
-    else:
-        front = render.question_html(card.question) + _images_in(question_html)
-        back = render.to_html(card.answer) + _images_in(answer_html)
     learning.log(
         {
             "kind": "fix",
             "note_id": note_id,
             "feedback": feedback,
-            "before": {"question": current["question"], "answer": current["answer"]},
+            "before": current,
             "after": {"question": card.question, "answer": card.answer},
         }
     )
     return {"front": front, "back": back, "add_tags": [FIXED_TAG], "bloom": card.bloom}
 
 
-RECENT_WRITE_SECONDS = 120
-
-
 def _writes_path():
     return config.data_dir() / "recent_writes.json"
 
 
+def _writes_lock() -> FileLock:
+    return FileLock(str(_writes_path()) + ".lock")
+
+
+def _recent_writes() -> dict:
+    path = _writes_path()
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def note_written(note_id: int) -> None:
     """Remember that AnkiHelper itself just changed this note, so the add-on's edit report is not taken as the learner's."""
-    path = _writes_path()
-    writes = json.loads(path.read_text()) if path.exists() else {}
-    now = datetime.now().timestamp()
-    writes = {k: t for k, t in writes.items() if now - t < RECENT_WRITE_SECONDS}
-    writes[str(note_id)] = now
-    path.write_text(json.dumps(writes))
+    with _writes_lock():
+        now = datetime.now().timestamp()
+        writes = {k: t for k, t in _recent_writes().items() if now - t < RECENT_WRITE_SECONDS}
+        writes[str(note_id)] = now
+        _writes_path().write_text(json.dumps(writes))
 
 
 def report(request: dict) -> bool:
     """Record the edits and deletions the add-on saw ({"events": [...]}). Returns whether it is time to look for patterns."""
-    path = _writes_path()
-    writes = json.loads(path.read_text()) if path.exists() else {}
+    with _writes_lock():
+        writes = _recent_writes()
     now = datetime.now().timestamp()
     for event in request.get("events") or [request]:
         written = writes.get(str(event.get("note_id")))
@@ -93,57 +102,83 @@ def report(request: dict) -> bool:
     return learning.due()
 
 
+def _rewritable(anki, info: dict) -> bool:
+    """Same rule as the add-on: exactly two fields and not a cloze (or image occlusion) note type."""
+    if len(info.get("fields") or {}) != 2:
+        return False
+    [model] = anki.invoke("findModelsByName", modelNames=[info["modelName"]])
+    return model.get("type") != CLOZE
+
+
 def fix_flagged(cfg: Config, anki) -> tuple[int, list[str]]:
-    """Rewrite the cards the learner flagged in Anki. Returns (fixed count, errors); failures stay flagged."""
-    items, fixed, errors, retry = take_flagged(), 0, [], []
-    for item in items:
+    """Rewrite the cards the learner flagged in Anki, one at a time. Returns (fixed count, errors).
+
+    Each flag leaves the list as soon as it is handled, so a batch that dies midway loses nothing;
+    flags that fail for a reason a retry could fix stay for the next batch."""
+    fixed, errors = 0, []
+    for item in list_flagged():
+        note_id = item["note_id"]
         try:
-            [info] = anki.notes_info([item["note_id"]])
-            fields = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"])
-            if len(fields) < 2:
-                raise ValueError("the note has fewer than two fields")
-            (q_name, q), (a_name, a) = fields[0], fields[1]
-            result = rewrite(cfg, item["note_id"], q["value"], a["value"], item["feedback"])
-            note_written(item["note_id"])
-            anki.update_fields(item["note_id"], {q_name: result["front"], a_name: result["back"]})
-            anki.add_tags([item["note_id"]], result["add_tags"])
+            [info] = anki.notes_info([note_id])
+            if not info:
+                errors.append(f"note {note_id} was deleted; flag dropped")
+                unflag(item)
+                continue
+            if not _rewritable(anki, info):
+                errors.append(f"note {note_id} is not a two-field question/answer card; flag dropped")
+                unflag(item)
+                continue
+            (q_name, q), (a_name, a) = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"])
+            result = rewrite(cfg, note_id, q["value"], a["value"], item["feedback"])
+            note_written(note_id)
+            anki.update_fields(note_id, {q_name: result["front"], a_name: result["back"]})
+            anki.add_tags([note_id], result["add_tags"])
+            _clear_red_flag(anki, note_id)
+            unflag(item)
             fixed += 1
         except Exception as error:  # one bad flag must not stop the others; it stays flagged
-            errors.append(f"note {item['note_id']}: {error}")
-            retry.append(item)
-    return_flagged(retry)
+            errors.append(f"note {note_id}: {error}")
     return fixed, errors
+
+
+def _clear_red_flag(anki, note_id: int) -> None:
+    try:
+        for card_id in anki.invoke("findCards", query=f"nid:{note_id} flag:1"):
+            anki.invoke("setSpecificValueOfCard", card=card_id, keys=["flags"], newValues=[0])
+    except Exception:  # the flag is only a visual hint
+        pass
 
 
 def _flagged_path():
     return config.data_dir() / "flagged.jsonl"
 
 
+def _flags_lock() -> FileLock:
+    return FileLock(str(_flagged_path()) + ".lock")
+
+
 def flag(note_id: int, feedback: str) -> None:
-    with FileLock(str(_flagged_path()) + ".lock"), _flagged_path().open("a") as f:
-        f.write(json.dumps({"note_id": note_id, "feedback": feedback, "time": datetime.now().isoformat(timespec="seconds")}) + "\n")
+    item = {"note_id": note_id, "feedback": feedback, "time": datetime.now().isoformat(timespec="seconds")}
+    with _flags_lock(), _flagged_path().open("a") as f:
+        f.write(json.dumps(item) + "\n")
     learning.log({"kind": "flag", "note_id": note_id, "feedback": feedback})
 
 
-def has_flagged() -> bool:
-    path = _flagged_path()
-    return path.exists() and bool(path.read_text().strip())
-
-
-def take_flagged() -> list[dict]:
-    with FileLock(str(_flagged_path()) + ".lock"):
+def list_flagged() -> list[dict]:
+    with _flags_lock():
         path = _flagged_path()
-        if not path.exists():
-            return []
-        items = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-        path.write_text("")
-        return items
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
 
 
-def return_flagged(items: list[dict]) -> None:
-    with FileLock(str(_flagged_path()) + ".lock"), _flagged_path().open("a") as f:
-        for item in items:
-            f.write(json.dumps(item) + "\n")
+def has_flagged() -> bool:
+    return bool(list_flagged())
+
+
+def unflag(item: dict) -> None:
+    with _flags_lock():
+        path = _flagged_path()
+        keep = [line for line in path.read_text().splitlines() if line.strip() and json.loads(line) != item]
+        path.write_text("".join(line + "\n" for line in keep))
 
 
 def history(note_id: int) -> dict:

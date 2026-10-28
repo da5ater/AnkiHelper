@@ -98,7 +98,7 @@ def test_cli_speaks_json_to_the_addon(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"note_id": 12, "feedback": "too long"})))
     assert cli.main(["anki", "flag"]) == 0
     assert json.loads(capsys.readouterr().out) == {"ok": True}
-    assert bridge.take_flagged()[0]["feedback"] == "too long"
+    assert bridge.list_flagged()[0]["feedback"] == "too long"
 
 
 def test_install_addon_links_it_into_anki_and_is_safe_to_rerun(tmp_path, monkeypatch):
@@ -108,3 +108,50 @@ def test_install_addon_links_it_into_anki_and_is_safe_to_rerun(tmp_path, monkeyp
     assert target.is_symlink() and (target / "__init__.py").exists()
     assert "Installed" in first and "Already installed" in addon.install()
     assert json.loads((target / "user_files" / "cli.json").read_text())["command"]
+
+
+def test_flagged_cloze_cards_are_never_rewritten(fake_anki, monkeypatch):
+    anki = AnkiConnect(fake_anki.url)
+    fake_anki.decks.add("other")
+    anki.add_note("other", "Cloze", "{{c1::Rack}} is a web server interface", "", [])
+    bridge.flag(1, "shorter")
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no rewrite")))
+
+    summary = batch.run(Config(anki_url=fake_anki.url), anki)
+
+    assert summary.fixed == 0 and "not a two-field" in summary.fix_errors[0]
+    assert fake_anki.notes[0]["fields"]["Front"] == "{{c1::Rack}} is a web server interface"
+    assert not bridge.has_flagged(), "an unsupported flag is dropped, not retried forever"
+
+
+def test_a_fix_rewrites_the_card_as_it_is_in_anki_now(monkeypatch):
+    entry = inbox.Entry.new("what is rack", "interface", "ruby")
+    notes.record(8, entry, Card(entry.id, "Stored question?", "Stored answer", [], False))
+    seen = []
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or fixed_reply()())
+
+    reply = bridge.rewrite(Config(), 8, "<p>Edited by hand?</p>", "<p>Hand answer</p><img src='mine.png'>", "shorter")
+
+    assert "Edited by hand?" in seen[0] and "Stored question?" not in seen[0]
+    assert "<img src='mine.png'>" in reply["back"]
+
+
+def test_only_one_learning_run_at_a_time(monkeypatch):
+    from filelock import FileLock
+
+    for n in range(5):
+        learning.log({"kind": "delete", "note_id": n})
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run twice")))
+    with FileLock(str(config.data_dir() / "learn-running.lock")):
+        assert learning.learn(Config()) == []
+
+
+def test_a_failed_learning_run_does_not_get_stuck(monkeypatch):
+    for n in range(5):
+        learning.log({"kind": "delete", "note_id": n})
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: (_ for _ in ()).throw(agents.AgentError("timeout")))
+    try:
+        learning.learn(Config())
+    except agents.AgentError:
+        pass
+    assert learning.pending() == []

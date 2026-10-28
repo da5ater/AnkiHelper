@@ -93,7 +93,7 @@ def call(action: str, payload: dict, on_done=None) -> None:
         if on_done:
             on_done(reply)
 
-    mw.taskman.run_in_background(lambda: _run(action, payload), finished)
+    mw.taskman.run_in_background(lambda: _run(action, payload), finished, uses_collection=False)
 
 
 def text_of(fragment: str) -> str:
@@ -102,8 +102,16 @@ def text_of(fragment: str) -> str:
 
 
 def _sides(note) -> tuple[str, str] | None:
+    """The question and answer fields of a note AnkiHelper may rewrite: exactly two fields and not cloze.
+    Cloze and Image Occlusion keep their deletions and masks in the fields, and in a three-field note
+    the second field may be audio or an image rather than the answer."""
     names = list(note.keys())
-    return (names[0], names[1]) if len(names) >= 2 else None
+    if len(names) != 2 or note.note_type()["type"] == CLOZE:
+        return None
+    return names[0], names[1]
+
+
+UNSUPPORTED = "AnkiHelper can only rewrite cards with exactly two fields (a question and an answer), not cloze or image occlusion cards."
 
 
 def _describe(note) -> dict:
@@ -127,7 +135,13 @@ def _current_note():
     return mw.reviewer.card.note()
 
 
-def _save(note, fields: dict[str, str], add_tags: list[str], message: str) -> None:
+def _save(note_id: int, fields: dict[str, str], add_tags: list[str], message: str) -> None:
+    """Write only these fields and tags onto the note as it is now, so edits made meanwhile survive."""
+    try:
+        note = mw.col.get_note(note_id)
+    except Exception:  # deleted while AnkiHelper was working
+        tooltip("That card was deleted, so the rewrite was not saved.")
+        return
     for name, value in fields.items():
         note[name] = value
     for tag in add_tags:
@@ -136,9 +150,15 @@ def _save(note, fields: dict[str, str], add_tags: list[str], message: str) -> No
 
     def saved(_changes) -> None:
         _writing.discard(note.id)
+        if _review_snapshot.get("note_id") == note.id:
+            _review_snapshot["before"] = _snapshot(mw.col.get_note(note.id))
         tooltip(message)
 
-    update_note(parent=mw, note=note).success(saved).run_in_background()
+    def failed(error) -> None:
+        _writing.discard(note.id)
+        showWarning(f"AnkiHelper could not save the card: {error}")
+
+    update_note(parent=mw, note=note).success(saved).failure(failed).run_in_background()
 
 
 class FixDialog(QDialog):
@@ -147,6 +167,7 @@ class FixDialog(QDialog):
     def __init__(self, note, later: bool):
         super().__init__(mw)
         self.note = note
+        self.cancelled = False
         self.setWindowTitle("AnkiHelper")
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
@@ -178,8 +199,8 @@ class FixDialog(QDialog):
         if not feedback:
             self.status.setText("Say what should change first.")
             return
-        if self.note.note_type()["type"] == CLOZE or not sides:
-            self.status.setText("AnkiHelper can rewrite cards with a question and an answer field, not cloze cards.")
+        if not sides:
+            self.status.setText(UNSUPPORTED)
             return
         self.now.setEnabled(False)
         self.later.setEnabled(False)
@@ -192,7 +213,13 @@ class FixDialog(QDialog):
         }
         call("fix", payload, self._fixed)
 
+    def reject(self) -> None:
+        self.cancelled = True
+        super().reject()
+
     def _fixed(self, reply: dict) -> None:
+        if self.cancelled:
+            return
         if "error" in reply:
             self.status.setText(f"⚠ {reply['error']}")
             self.now.setEnabled(True)
@@ -200,7 +227,7 @@ class FixDialog(QDialog):
             return
         sides = _sides(self.note)
         _save(
-            self.note,
+            self.note.id,
             {sides[0]: reply["front"], sides[1]: reply["back"]},
             reply.get("add_tags", []),
             "AnkiHelper rewrote the card. Edit → Undo brings the old one back.",
@@ -209,6 +236,9 @@ class FixDialog(QDialog):
 
     def fix_later(self) -> None:
         feedback = self.text.text().strip()
+        if not _sides(self.note):
+            self.status.setText(UNSUPPORTED)
+            return
         call("flag", {"note_id": self.note.id, "feedback": feedback})
         card = mw.reviewer.card
         if card:
@@ -290,7 +320,10 @@ class HistoryDialog(QDialog):
             showWarning(reply["error"])
             return
         sides = _sides(self.note)
-        _save(self.note, {sides[0]: reply["front"], sides[1]: reply["back"]}, [], "Switched to that version.")
+        if not sides:
+            showWarning(UNSUPPORTED)
+            return
+        _save(self.note.id, {sides[0]: reply["front"], sides[1]: reply["back"]}, [], "Switched to that version.")
         self.accept()
 
 
@@ -308,48 +341,105 @@ def show_history() -> None:
         HistoryDialog(note).exec()
 
 
+BULK = 20
+"""Edits or deletions of more notes than this at once are bulk tools, not taste: summarized or skipped."""
+EDIT_QUIET_MS = 20_000
+"""Editors save on every keystroke; an edit is reported once the note has been left alone this long."""
+_pending: dict[int, dict] = {}
+"""note id -> the note as it was before the learner started editing it."""
+_review_snapshot: dict = {}
+_flush_timer = None
+
+
+def _snapshot(note) -> dict | None:
+    sides = _sides(note)
+    if not sides:
+        return None
+    return {"question": text_of(note[sides[0]]), "answer": text_of(note[sides[1]])}
+
+
+def _report_edits(befores: dict[int, dict]) -> None:
+    events = []
+    for note_id, before in befores.items():
+        if note_id in _writing:
+            continue
+        try:
+            note = mw.col.get_note(note_id)
+        except Exception:  # deleted meanwhile; the deletion is reported on its own
+            continue
+        after = _snapshot(note)
+        if after and after != before:
+            info = _describe(note)
+            events.append({"kind": "edit", "note_id": note_id, "model": info["model"], "deck": info["deck"], "tags": info["tags"], "before": before, "after": after})
+    if events:
+        call("event", {"events": events})
+
+
+def _flush_pending() -> None:
+    befores = dict(_pending)
+    _pending.clear()
+    _report_edits(befores)
+
+
+def _schedule_flush() -> None:
+    global _flush_timer
+    from aqt.qt import QTimer
+
+    if _flush_timer is None:
+        _flush_timer = QTimer(mw)
+        _flush_timer.setSingleShot(True)
+        _flush_timer.timeout.connect(_flush_pending)
+    _flush_timer.start(EDIT_QUIET_MS)
+
+
 def _watch_edits(col) -> None:
-    """Report hand edits (from the editor, the browser or other add-ons) so AnkiHelper can learn from them."""
+    """Notice hand edits made through col.update_notes (the Browser, AnkiConnect, other add-ons)."""
     original = col.update_notes
 
     def update_notes(notes, skip_undo_entry: bool = False):
-        events = []
-        for note in notes:
-            if not note.id or note.id in _writing:
-                continue
-            try:
-                before = col.get_note(note.id)
-            except Exception:  # a note that is not saved yet has nothing to compare
-                continue
-            sides = _sides(note)
-            if sides and (before[sides[0]] != note[sides[0]] or before[sides[1]] != note[sides[1]]):
-                after = _describe(note)
-                events.append(
-                    {
-                        "kind": "edit",
-                        "note_id": note.id,
-                        "model": after["model"],
-                        "deck": after["deck"],
-                        "tags": after["tags"],
-                        "before": {"question": text_of(before[sides[0]]), "answer": text_of(before[sides[1]])},
-                        "after": {"question": after["question"], "answer": after["answer"]},
-                    }
-                )
-        result = original(notes, skip_undo_entry=skip_undo_entry)
-        if events:
-            mw.taskman.run_on_main(lambda: call("event", {"events": events}))
-        return result
+        try:
+            if len(notes) <= BULK:
+                for note in notes:
+                    if note.id and note.id not in _writing and note.id not in _pending:
+                        before = _snapshot(col.get_note(note.id))
+                        if before:
+                            _pending[note.id] = before
+                if _pending:
+                    mw.taskman.run_on_main(_schedule_flush)
+        except Exception:  # learning is optional; the learner's save must always go through
+            pass
+        return original(notes, skip_undo_entry=skip_undo_entry)
 
     col.update_notes = update_notes
 
 
+def _on_question(card) -> None:
+    """The review screen's own editor saves around update_notes, so compare each card when moving on."""
+    try:
+        previous = dict(_review_snapshot)
+        if previous and previous["note_id"] not in _pending:
+            _report_edits({previous["note_id"]: previous["before"]})
+        note = card.note()
+        before = _snapshot(note)
+        _review_snapshot.clear()
+        if before:
+            _review_snapshot.update({"note_id": note.id, "before": before})
+    except Exception:  # never get in the way of studying
+        pass
+
+
 def _report_deletions(col, note_ids) -> None:
-    events = []
+    try:
+        if len(note_ids) > BULK:
+            sample = [{"kind": "delete", **_describe(col.get_note(n))} for n in list(note_ids)[:5]]
+            events = [{"kind": "bulk-delete", "count": len(note_ids), "sample": sample}]
+        else:
+            events = [{"kind": "delete", **_describe(col.get_note(n))} for n in note_ids]
+    except Exception:  # deletion must never be blocked by reporting
+        return
+    _review_snapshot.clear()
     for note_id in note_ids:
-        try:
-            events.append({"kind": "delete", **_describe(col.get_note(note_id))})
-        except Exception:  # already gone; nothing to learn from it
-            continue
+        _pending.pop(note_id, None)
     if events:
         mw.taskman.run_on_main(lambda: call("event", {"events": events}))
 
@@ -401,6 +491,19 @@ def _add_review_button(_card=None) -> None:
     mw.reviewer.bottom.web.eval(BUTTON_JS)
 
 
+def _on_question_end() -> None:
+    previous = dict(_review_snapshot)
+    _review_snapshot.clear()
+    if previous and previous["note_id"] not in _pending:
+        _report_edits({previous["note_id"]: previous["before"]})
+    _flush_pending()
+
+
+def _question_shown(card) -> None:
+    _on_question(card)
+    _add_review_button()
+
+
 def _review_menu() -> None:
     menu = QMenu(mw)
     menu.addAction("Fix this card now  (F)", lambda: fix_card(later=False))
@@ -432,7 +535,8 @@ def _menu() -> None:
 
 gui_hooks.main_window_did_init.append(_menu)
 gui_hooks.top_toolbar_did_init_links.append(_toolbar)
-gui_hooks.reviewer_did_show_question.append(_add_review_button)
+gui_hooks.reviewer_did_show_question.append(_question_shown)
+gui_hooks.reviewer_will_end.append(lambda: _on_question_end())
 gui_hooks.reviewer_did_show_answer.append(_add_review_button)
 gui_hooks.webview_did_receive_js_message.append(_on_js_message)
 gui_hooks.profile_did_open.append(lambda: _watch_edits(mw.col))

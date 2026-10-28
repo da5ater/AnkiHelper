@@ -40,9 +40,13 @@ class FakeAnki:
             return len(self.notes)
         if action == "notesInfo":
             return [
-                {"noteId": i, "fields": {"Front": {"value": self.notes[i - 1]["fields"]["Front"], "order": 0}, "Back": {"value": self.notes[i - 1]["fields"]["Back"], "order": 1}}}
+                {"noteId": i, "modelName": self.notes[i - 1]["modelName"], "fields": {"Front": {"value": self.notes[i - 1]["fields"]["Front"], "order": 0}, "Back": {"value": self.notes[i - 1]["fields"]["Back"], "order": 1}}}
                 for i in params["notes"]
             ]
+        if action == "findModelsByName":
+            return [{"name": n, "type": 1 if n == "Cloze" else 0} for n in params["modelNames"]]
+        if action == "findCards":
+            return []
         if action == "updateNoteFields":
             self.notes[params["note"]["id"] - 1]["fields"].update(params["note"]["fields"])
             return None

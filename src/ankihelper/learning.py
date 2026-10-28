@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 from . import agents, config
 from .config import Config
@@ -13,6 +13,8 @@ LEARN_EVERY = 10
 """Events to collect before the add-on asks for suggestions in the background."""
 MIN_EVENTS = 3
 """A pattern needs at least this many events behind it."""
+MAX_EVENTS = 150
+"""Most recent events sent in one prompt; older pending ones are skipped so a backlog cannot grow forever."""
 
 
 def _events_path():
@@ -77,15 +79,29 @@ def _describe(event: dict) -> dict:
     for key in ("question", "answer"):
         if key in event:
             keep[key] = _short(str(event[key]))
+    if isinstance(event.get("sample"), list):
+        keep["sample"] = [_describe(e) for e in event["sample"]]
     return keep
 
 
 def learn(cfg: Config) -> list[dict]:
     """Ask the agent for rules that explain the pending events; returns the new suggestions."""
+    running = FileLock(str(config.data_dir() / "learn-running.lock"))
+    try:
+        running.acquire(timeout=0)
+    except Timeout:
+        return []
+    try:
+        return _learn(cfg)
+    finally:
+        running.release()
+
+
+def _learn(cfg: Config) -> list[dict]:
     with _lock():
         events = _events()
         start = _seen()
-    fresh = events[start:]
+    fresh = events[start:][-MAX_EVENTS:]
     if len(fresh) < MIN_EVENTS:
         return []
     text = agents.prompt(
@@ -93,7 +109,11 @@ def learn(cfg: Config) -> list[dict]:
         rules=config.personal_rules() or "(none yet)",
         events="\n".join(json.dumps(_describe(e), ensure_ascii=False) for e in fresh),
     )
-    reply = agents.extract_json(agents.ask(cfg.agent, text, timeout=300))
+    try:
+        reply = agents.extract_json(agents.ask(cfg.agent, text, timeout=300))
+    finally:
+        with _lock():
+            _state_path().write_text(json.dumps({"seen": len(events)}))
     found = []
     for raw in reply.get("rules") or []:
         if isinstance(raw, dict) and str(raw.get("rule", "")).strip():
@@ -102,7 +122,6 @@ def learn(cfg: Config) -> list[dict]:
             )
     with _lock():
         _save_suggestions(suggestions() + found)
-        _state_path().write_text(json.dumps({"seen": len(events)}))
     return found
 
 

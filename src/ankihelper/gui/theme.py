@@ -18,6 +18,7 @@ AMBER = "#fbbf24"
 RED = "#fb7185"
 BLUE = "#60a5fa"
 
+BLOOM_COLORS = {"remember": BLUE, "understand": CYAN, "apply": GREEN, "analyze": AMBER, "evaluate": PINK, "create": VIOLET}
 AGENT_COLORS = {"claude": "#f97316", "codex": GREEN, "gemini": BLUE, "opencode": "#e2e8f0"}
 PAGE_COLORS = {"capture": PINK, "inbox": AMBER, "setup": GREEN, "settings": CYAN}
 

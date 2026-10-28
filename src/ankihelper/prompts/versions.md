@@ -15,6 +15,8 @@ Every version still follows the card rules: focused, precise, consistent, tracta
 
 {rules}
 
+Use Bloom's taxonomy (remember, understand, apply, analyze, evaluate, create) to climb: at least two versions must work at a higher level than the card has now (for example turn a "which service" recall card into an apply scenario or an analyze "what breaks if" card). Label every card with its level in "bloom". Every card still needs one consistent answer.
+
 For each version, write one short sentence on why this strategy could make the card easier to remember or more useful for this learner.
 
 The learner's note:
@@ -28,4 +30,4 @@ The learner's other cards for this note (do not repeat them):
 
 Reply with ONLY a JSON object, no prose before or after:
 
-{"versions": [{"style": "Application / scenario", "why": "...", "cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": true}]}]}
+{"versions": [{"style": "Application / scenario", "why": "...", "cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": true, "bloom": "apply"}]}]}

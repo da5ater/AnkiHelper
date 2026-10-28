@@ -49,6 +49,12 @@ def _side(title: str, color: str, html: str) -> QWidget:
     return box
 
 
+def _bloom(level: str) -> QLabel:
+    widget = pill(f"Bloom · {level}", theme.BLOOM_COLORS[level])
+    widget.setToolTip("Bloom's taxonomy level: remember → understand → apply → analyze → evaluate → create")
+    return widget
+
+
 def _small_button(text: str, tip: str, kind: str = "") -> QPushButton:
     button = QPushButton(text)
     button.setObjectName("nodeAction")
@@ -123,6 +129,8 @@ class CardNode(QFrame):
 
         header = QHBoxLayout()
         header.addWidget(pill(f"CARD {index + 1} / {total}", theme.VIOLET))
+        if slot.card.bloom:
+            header.addWidget(_bloom(slot.card.bloom))
         if slot.status == review.ACCEPTED:
             header.addWidget(pill("✓ Accepted", theme.GREEN))
         elif slot.status == review.REMOVED:
@@ -212,6 +220,8 @@ class VersionNode(QFrame):
         title = label(f"↩ {version.style}" if original else f"✨ {version.style}")
         title.setStyleSheet(f"color: {theme.AMBER if original else theme.CYAN}; font-weight: 800;")
         header.addWidget(title)
+        for level in dict.fromkeys(c.bloom for c in version.cards if c.bloom):
+            header.addWidget(_bloom(level))
         if version.added:
             header.addWidget(pill("✓ Added as a new card", theme.GREEN))
         header.addStretch()
@@ -389,9 +399,15 @@ class ReviewPage(Page):
         self.layout_.addLayout(bar)
 
     def open(self, entry: inbox.Entry) -> None:
-        self.review = review.Review(entry)
         self.rule_panel.hide()
         self.log.hide()
+        if entry.cards:
+            saved = [review.Slot(batch.Card(**card), review.ACCEPTED) for card in entry.cards]
+            self.review = review.Review(entry, saved)
+            self.render()
+            self._say("These are the cards you saved. Change them, or ↻ Redo all to start over.")
+            return
+        self.review = review.Review(entry)
         self._work(None, "Reading your note and writing cards…", lambda: review.generate(self.cfg, self.review))
 
     def _work(self, target: int | None, text: str, fn, on_done=None) -> None:

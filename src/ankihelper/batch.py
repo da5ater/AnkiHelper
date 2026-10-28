@@ -15,6 +15,9 @@ MAX_CARDS_PER_ENTRY = 8
 SOURCE_TAG = "manual_voice"
 
 
+BLOOM_LEVELS = ("remember", "understand", "apply", "analyze", "evaluate", "create")
+
+
 @dataclass
 class Card:
     source_id: str
@@ -22,6 +25,8 @@ class Card:
     answer: str
     tags: list[str]
     changed: bool
+    bloom: str = ""
+    """Bloom's taxonomy level the card works at: one of BLOOM_LEVELS, or "" when unknown."""
 
     @classmethod
     def parse(cls, raw) -> "Card":
@@ -33,7 +38,15 @@ class Card:
         if not isinstance(answer, str):
             raise agents.AgentError(f"card without an answer: {raw!r}")
         tags = [str(t).strip().lower().replace(" ", "-") for t in raw.get("tags") or [] if str(t).strip()]
-        return cls(str(raw.get("source_id", "")), question, answer, tags, bool(raw.get("changed")))
+        bloom = str(raw.get("bloom") or "").strip().lower()
+        return cls(
+            str(raw.get("source_id", "")),
+            question,
+            answer,
+            tags,
+            bool(raw.get("changed")),
+            bloom if bloom in BLOOM_LEVELS else "",
+        )
 
 
 class BatchRunning(Exception):
@@ -150,7 +163,7 @@ def card_html(card: Card, entry: Entry) -> tuple[str, str]:
 
 
 def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
-    tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else [])]
+    tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else []), *([f"bloom-{card.bloom}"] if card.bloom else [])]
     anki.add_note(deck, cfg.note_type, *card_html(card, entry), tags)
 
 

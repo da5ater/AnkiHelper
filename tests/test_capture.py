@@ -127,3 +127,19 @@ def test_save_in_preview_keeps_only_accepted_cards_and_returns_to_the_inbox(wind
     assert [c["question"] for c in saved.cards] == ["one"]
     assert main.stack.currentWidget() is main.inbox
     assert "Saved 1 card" in main.inbox.notice.text()
+
+
+def test_reopening_preview_shows_saved_cards_instead_of_regenerating(window, monkeypatch):
+    from ankihelper import agents, review
+
+    main = window.window_
+    entry = inbox.Entry.new("aws security", "", "DevOps::AWS")
+    inbox.append(entry)
+    inbox.approve(entry.id, [{"source_id": entry.id, "question": "Saved?", "answer": "yes", "tags": [], "changed": False, "bloom": "apply"}])
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not regenerate")))
+
+    main._preview(inbox.read_all()[0])
+
+    page = main.review
+    assert not page.busy
+    assert [(s.card.question, s.status, s.card.bloom) for s in page.review.slots] == [("Saved?", review.ACCEPTED, "apply")]

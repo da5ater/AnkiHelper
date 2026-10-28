@@ -20,4 +20,6 @@ The learner's other cards for this note:
 
 Reply with ONLY a JSON object, no prose before or after:
 
-{"cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": true}]}
+{"cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": true, "bloom": "remember"}]}
+
+Set "bloom" to the Bloom's taxonomy level the card works at: remember, understand, apply, analyze, evaluate or create.

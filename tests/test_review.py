@@ -130,3 +130,24 @@ def test_versions_belong_to_one_card_and_can_replace_it_or_be_added(monkeypatch)
         "Who decides who can do what?",
         "Which service logs API calls?",
     ]
+
+
+def test_bloom_level_is_kept_validated_and_tagged(fake_anki, monkeypatch):
+    entry = inbox.Entry.new("q", "a", "ruby")
+    inbox.append(entry)
+    reply = {"cards": [
+        {"source_id": entry.id, "question": "Apply?", "answer": "a", "bloom": "Apply"},
+        {"source_id": entry.id, "question": "Odd?", "answer": "a", "bloom": "memorize"},
+    ]}
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: json.dumps(reply))
+
+    batch.run(Config(anki_url=fake_anki.url), AnkiConnect(fake_anki.url))
+
+    tags = {n["fields"]["Front"]: n["tags"] for n in fake_anki.notes}
+    assert any("bloom-apply" in t for t in tags.values())
+    assert not any(tag.startswith("bloom-memorize") for t in tags.values() for tag in t)
+
+
+def test_process_prompt_splits_lists_and_uses_bloom():
+    text = agents.prompt("process", entries="", language="English", rules="")
+    assert "Lists always split" in text and "## Bloom's taxonomy" in text

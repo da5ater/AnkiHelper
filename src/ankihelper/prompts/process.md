@@ -11,7 +11,8 @@ Treat each entry as the user's IDEA, not their exact words:
 5. Set "changed": true when you changed the meaning of the question, corrected the answer, or wrote a missing answer. Pure wording, grammar and code-formatting fixes are "changed": false.
 6. Produce one card per entry. Only if the entry contains the word "split", split it into several atomic cards (all with the same source_id).
 7. Add 1 to 4 lowercase topic tags (e.g. "rails", "generators"). Use hyphens, no spaces.
-8. If an entry is unusable (empty, accidental, unintelligible), put it in "skipped" with a short reason instead of guessing.
+8. "question_images" and "answer_images" count pictures the user pasted. They are shown under the question and the answer on the card; you cannot see them. When a picture carries the content (e.g. the question is just "what is this" with an image), keep the text short and pointing at it ("What does the diagram show?"). Never describe or guess what a picture contains. An entry with images is never unusable just because its text is short.
+9. If an entry is unusable (empty, accidental, unintelligible), put it in "skipped" with a short reason instead of guessing.
 
 Formatting rules for "question" and "answer": a small Markdown subset only. Paragraphs, "- " bullet lists, **bold**, inline `code`, fenced code blocks. No headings, no tables, no HTML.
 

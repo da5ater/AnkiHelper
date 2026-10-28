@@ -20,6 +20,11 @@ class Entry:
     error: str | None = None
     cards: list[dict] | None = None
     """Cleaned cards still waiting to be imported, so a retry does not ask the agent again."""
+    images: list[dict] | None = None
+    """Pasted pictures as {"file": name in config.media_dir(), "field": "question" | "answer"}."""
+
+    def images_for(self, field: str) -> list[str]:
+        return [image["file"] for image in self.images or [] if image["field"] == field]
 
     @classmethod
     def new(cls, question: str, answer: str, topic: str) -> "Entry":

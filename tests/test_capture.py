@@ -51,3 +51,26 @@ def test_empty_question_is_not_saved(window):
 def test_topic_autocompletes_from_known_subdecks(window):
     items = [window.topic.itemText(i) for i in range(window.topic.count())]
     assert items == ["ruby", "node::mosh"]
+
+
+def test_pasting_a_picture_attaches_it_instead_of_text(window):
+    from PySide6.QtCore import QMimeData
+    from PySide6.QtGui import QColor, QImage
+
+    from ankihelper import config
+
+    image = QImage(40, 30, QImage.Format.Format_RGB32)
+    image.fill(QColor("orange"))
+    mime = QMimeData()
+    mime.setImageData(image)
+    window.question.insertFromMimeData(mime)
+    assert window.strips["question"].isVisible()
+    assert window.question.toPlainText() == ""
+
+    QTest.keyClick(window.question, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+
+    [entry] = inbox.read_all()
+    assert entry.question == "", "a picture alone is a valid question"
+    [saved] = entry.images
+    assert saved["field"] == "question"
+    assert QImage(str(config.media_dir() / saved["file"])).size() == image.size()

@@ -2,11 +2,11 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QComboBox, QCompleter, QHBoxLayout, QPushButton, QVBoxLayout
 
-from .. import dictation, inbox
+from .. import config, dictation, inbox
 from ..anki import AnkiConnect, AnkiError, AnkiUnreachable
 from ..config import Config
 from . import theme
-from .common import Page, TextBox, label, restyle
+from .common import ImageStrip, Page, TextBox, label, restyle
 
 MIC_ICONS = {"idle": "🎙", "recording": "⏺", "transcribing": "✍"}
 
@@ -34,8 +34,11 @@ class CapturePage(Page):
         self.cfg = cfg
         self.close_after_save = close_after_save
 
-        self.question = TextBox("What do you want to remember?", "violet")
-        self.answer = TextBox("The answer, a command, a snippet…", "cyan")
+        self.question = TextBox("What do you want to remember?   Ctrl+V pastes a picture", "violet")
+        self.answer = TextBox("The answer, a command, a snippet… or a picture", "cyan")
+        self.strips = {"question": ImageStrip(), "answer": ImageStrip()}
+        self.question.image_pasted.connect(self.strips["question"].add)
+        self.answer.image_pasted.connect(self.strips["answer"].add)
         self.topic = QComboBox()
         self.topic.setEditable(True)
         self.topic.addItems(topics(cfg))
@@ -60,9 +63,13 @@ class CapturePage(Page):
         self.save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.save_button.clicked.connect(self.save)
 
-        for title, widget, stretch in (("QUESTION", self.question, 2), ("ANSWER", self.answer, 3)):
+        for title, field, widget, stretch in (
+            ("QUESTION", "question", self.question, 2),
+            ("ANSWER", "answer", self.answer, 3),
+        ):
             self.layout_.addWidget(label(title, "fieldLabel"))
             self.layout_.addWidget(widget, stretch)
+            self.layout_.addWidget(self.strips[field])
         self.layout_.addWidget(label("TOPIC", "fieldLabel"))
         topic_row = QVBoxLayout()
         topic_row.setSpacing(4)
@@ -119,11 +126,12 @@ class CapturePage(Page):
 
     def save(self) -> None:
         question, topic = self.question.toPlainText().strip(), self.topic.currentText().strip()
-        if not question:
+        if not question and not self.strips["question"].images:
             return self._flash("Say a question first.", theme.RED, self.question)
         if not topic:
             return self._flash("Pick a topic.", theme.RED, self.topic)
         entry = inbox.Entry.new(question, self.answer.toPlainText(), topic)
+        entry.images = self._save_images(entry.id) or None
         inbox.append(entry)
         self.cfg.last_topic = topic
         self.cfg.save()
@@ -133,7 +141,19 @@ class CapturePage(Page):
             return
         self.question.clear()
         self.answer.clear()
+        for strip in self.strips.values():
+            strip.clear()
         self._flash("✓ Saved to your inbox", theme.GREEN, self.question)
+
+    def _save_images(self, entry_id: str) -> list[dict]:
+        saved = []
+        for field, strip in self.strips.items():
+            for image in strip.images:
+                name = f"ankihelper-{entry_id}-{len(saved) + 1}.png"
+                if not image.save(str(config.media_dir() / name), "PNG"):
+                    raise OSError(f"could not save pasted picture {name}")
+                saved.append({"file": name, "field": field})
+        return saved
 
     def _flash(self, message: str, color: str, focus) -> None:
         self.status.setText(message)

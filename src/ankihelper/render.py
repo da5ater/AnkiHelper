@@ -68,3 +68,10 @@ def to_html(markdown: str) -> str:
 
 def question_html(markdown: str) -> str:
     return f'<div style="{QUESTION_BOX}">{to_html(markdown)}</div>'
+
+
+def images_html(files: list[str]) -> str:
+    return "".join(
+        f'<div style="margin-top:0.6em"><img src="{html.escape(name)}" style="max-width:100%; border-radius:8px"></div>'
+        for name in files
+    )

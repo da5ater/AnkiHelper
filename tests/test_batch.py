@@ -279,3 +279,21 @@ def test_large_inbox_is_sent_in_chunks_over_stdin(setup, fake_anki, agent):
 
     assert summary.imported == 45
     assert sum("Entries (JSON lines" in c for c in agent.calls) == 3
+
+
+def test_pasted_pictures_are_uploaded_and_shown_under_question_and_answer(setup, fake_anki, agent):
+    cfg, anki = setup
+    entry = inbox.Entry.new("what does this diagram show", "the rails request cycle", "ruby")
+    entry.images = [{"file": "ankihelper-q.png", "field": "question"}, {"file": "ankihelper-a.png", "field": "answer"}]
+    for image in entry.images:
+        (config.media_dir() / image["file"]).write_bytes(b"png-bytes")
+    inbox.append(entry)
+
+    summary = batch.run(cfg, anki)
+
+    assert summary.imported == 1
+    assert set(fake_anki.media) == {"ankihelper-q.png", "ankihelper-a.png"}
+    note = fake_anki.notes[0]
+    assert '<img src="ankihelper-q.png"' in note["fields"]["Front"]
+    assert '<img src="ankihelper-a.png"' in note["fields"]["Back"]
+    assert '"question_images": 1' in agent.calls[0]

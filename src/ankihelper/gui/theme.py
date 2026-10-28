@@ -47,6 +47,7 @@ QLabel#faint {{ color: {FAINT}; font-size: 12px; }}
 QLabel#error {{ color: {RED}; font-size: 12px; }}
 QLabel#sectionTitle {{ font-size: 16px; font-weight: 700; }}
 
+QFrame#thumb {{ background: {SURFACE_HI}; border: 1px solid {BORDER}; border-radius: 10px; }}
 QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
 
 QPlainTextEdit, QLineEdit, QComboBox {{

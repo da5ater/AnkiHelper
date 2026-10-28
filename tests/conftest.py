@@ -12,6 +12,7 @@ class FakeAnki:
         self.decks = {"Default", "manual", "manual::ruby"}
         self.notes: list[dict] = []
         self.synced = 0
+        self.media: dict[str, bytes] = {}
         self.reject_fronts_containing = "REJECTME"
 
     def handle(self, action: str, params: dict):
@@ -37,6 +38,9 @@ class FakeAnki:
                 raise ValueError(f"deck was not found: {note['deckName']}")
             self.notes.append(note)
             return len(self.notes)
+        if action == "storeMediaFile":
+            self.media[params["filename"]] = open(params["path"], "rb").read()
+            return params["filename"]
         if action == "sync":
             self.synced += 1
             return None

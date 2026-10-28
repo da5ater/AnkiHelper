@@ -24,6 +24,12 @@ def archive_dir() -> Path:
     return path
 
 
+def media_dir() -> Path:
+    path = data_dir() / "media"
+    path.mkdir(exist_ok=True)
+    return path
+
+
 def log_dir() -> Path:
     path = data_dir() / "logs"
     path.mkdir(exist_ok=True)

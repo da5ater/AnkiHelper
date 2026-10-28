@@ -90,7 +90,17 @@ def _parse_reply(reply: dict, ids: set[str]) -> tuple[dict[str, list[Card]], dic
 
 def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict[str, str]]:
     payload = "\n".join(
-        json.dumps({"id": e.id, "question": e.question, "answer": e.answer, "topic": e.topic}) for e in entries
+        json.dumps(
+            {
+                "id": e.id,
+                "question": e.question,
+                "answer": e.answer,
+                "topic": e.topic,
+                "question_images": len(e.images_for("question")),
+                "answer_images": len(e.images_for("answer")),
+            }
+        )
+        for e in entries
     )
     text = agents.prompt("process", entries=payload)
     for attempt in range(CLEAN_ATTEMPTS):
@@ -102,16 +112,23 @@ def clean(agent: str, entries: list[Entry]) -> tuple[dict[str, list[Card]], dict
     raise AssertionError("unreachable")
 
 
-def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card) -> None:
+def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> None:
     tags = [*card.tags, SOURCE_TAG, *(["changed"] if card.changed else [])]
-    anki.add_note(deck, cfg.note_type, render.question_html(card.question), render.to_html(card.answer), tags)
+    front = render.question_html(card.question) + render.images_html(entry.images_for("question"))
+    back = render.to_html(card.answer) + render.images_html(entry.images_for("answer"))
+    anki.add_note(deck, cfg.note_type, front, back, tags)
 
 
-def import_card(anki: AnkiConnect, cfg: Config, agent: str, deck: str, card: Card) -> tuple[str, Card]:
+def _store_images(anki: AnkiConnect, entry: Entry) -> None:
+    for image in entry.images or []:
+        anki.store_media(image["file"], str(config.media_dir() / image["file"]))
+
+
+def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: str, card: Card) -> tuple[str, Card]:
     """Returns ("imported" | "duplicate", final card). Raises AnkiError once repairs are exhausted."""
     for attempt in range(REPAIR_ATTEMPTS + 1):
         try:
-            _add(anki, cfg, deck, card)
+            _add(anki, cfg, deck, card, entry)
             return "imported", card
         except DuplicateNote:
             return "duplicate", card
@@ -197,8 +214,9 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str) -> Summary:
                 if deck not in known_decks:
                     anki.create_deck(deck)
                     known_decks.add(deck)
+                _store_images(anki, entry)
                 for card in entry_cards:
-                    outcome, final = import_card(anki, cfg, agent, deck, card)
+                    outcome, final = import_card(anki, cfg, agent, entry, deck, card)
                     results.append({"outcome": outcome, "card": asdict(final)})
             except (AnkiError, agents.AgentError, AnkiUnreachable) as error:
                 summary.failed[entry.id] = str(error)

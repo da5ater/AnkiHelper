@@ -81,5 +81,8 @@ class AnkiConnect:
             },
         )
 
+    def store_media(self, name: str, path: str) -> None:
+        self.invoke("storeMediaFile", filename=name, path=path)
+
     def sync(self) -> None:
         self.invoke("sync", timeout=120)

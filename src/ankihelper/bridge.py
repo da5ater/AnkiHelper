@@ -217,6 +217,13 @@ def unflag(item: dict) -> None:
         path.write_text("".join(line + "\n" for line in keep))
 
 
+def unflag_note(note_id: int) -> None:
+    """The immediate fix worked, so the next batch has nothing left to do for this note."""
+    for item in list_flagged():
+        if item["note_id"] == note_id:
+            unflag(item)
+
+
 def history(note_id: int) -> dict:
     """Where a note came from: the learner's original note, its sibling cards and the versions it was offered."""
     record = notes.find(note_id)

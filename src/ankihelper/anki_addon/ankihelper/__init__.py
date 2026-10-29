@@ -162,9 +162,10 @@ def _save(note_id: int, fields: dict[str, str], add_tags: list[str], message: st
 
 
 class FixDialog(QDialog):
-    """Say what is wrong with the card: fix it now, or flag it for the next batch and keep studying."""
+    """Say what is wrong with the card. AnkiHelper fixes it right away, and the request is also saved so
+    the next batch fixes it if the immediate fix fails or Anki closes first."""
 
-    def __init__(self, note, later: bool):
+    def __init__(self, note):
         super().__init__(mw)
         self.note = note
         self.cancelled = False
@@ -174,26 +175,24 @@ class FixDialog(QDialog):
         layout.addWidget(QLabel("What should change in this card?"))
         self.text = QLineEdit()
         self.text.setPlaceholderText("e.g. too long · ask why instead · add bold signaling and why for each")
+        self.text.returnPressed.connect(self.fix)
         layout.addWidget(self.text)
         self.status = QLabel("")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
-        self.now = QPushButton("Fix now")
-        self.now.setDefault(not later)
-        self.now.clicked.connect(self.fix_now)
-        self.later = QPushButton("Fix in next batch")
-        self.later.setDefault(later)
-        self.later.clicked.connect(self.fix_later)
-        cancel = QPushButton("Cancel")
+        self.go = QPushButton("Fix")
+        self.go.setDefault(True)
+        self.go.clicked.connect(self.fix)
+        cancel = QPushButton("Close")
         cancel.clicked.connect(self.reject)
         buttons.addStretch()
-        for button in (cancel, self.later, self.now):
-            buttons.addWidget(button)
+        buttons.addWidget(cancel)
+        buttons.addWidget(self.go)
         layout.addLayout(buttons)
         self.text.setFocus()
 
-    def fix_now(self) -> None:
+    def fix(self) -> None:
         feedback = self.text.text().strip()
         sides = _sides(self.note)
         if not feedback:
@@ -202,9 +201,9 @@ class FixDialog(QDialog):
         if not sides:
             self.status.setText(UNSUPPORTED)
             return
-        self.now.setEnabled(False)
-        self.later.setEnabled(False)
-        self.status.setText("⏳ AnkiHelper is rewriting this card…")
+        self.go.setEnabled(False)
+        self.status.setText("⏳ AnkiHelper is rewriting this card… You can close this; if it doesn't finish, the next batch fixes it.")
+        call("flag", {"note_id": self.note.id, "feedback": feedback})
         payload = {
             "note_id": self.note.id,
             "question_html": self.note[sides[0]],
@@ -219,13 +218,14 @@ class FixDialog(QDialog):
         super().reject()
 
     def _fixed(self, reply: dict) -> None:
-        if self.cancelled:
-            return
         if "error" in reply:
-            self.status.setText(f"⚠ {reply['error']}")
-            self.now.setEnabled(True)
-            self.later.setEnabled(True)
+            card = mw.reviewer.card
+            if card and card.nid == self.note.id:
+                set_card_flag(parent=mw, card_ids=[card.id], flag=RED_FLAG).run_in_background()
+            if not self.cancelled:
+                self.status.setText(f"⚠ {reply['error']}<br>The card is flagged red; the next batch fixes it.")
             return
+        call("unflag", {"note_id": self.note.id})
         sides = _sides(self.note)
         _save(
             self.note.id,
@@ -234,25 +234,14 @@ class FixDialog(QDialog):
             "AnkiHelper rewrote the card. Edit → Undo brings the old one back."
             + (f"<br>Rule updated from your reasoning: {reply['rule_updated']}" if reply.get("rule_updated") else ""),
         )
-        self.accept()
-
-    def fix_later(self) -> None:
-        feedback = self.text.text().strip()
-        if not _sides(self.note):
-            self.status.setText(UNSUPPORTED)
-            return
-        call("flag", {"note_id": self.note.id, "feedback": feedback})
-        card = mw.reviewer.card
-        if card:
-            set_card_flag(parent=mw, card_ids=[card.id], flag=RED_FLAG).run_in_background()
-        tooltip("Flagged. The next AnkiHelper batch fixes it.")
-        self.accept()
+        if not self.cancelled:
+            self.accept()
 
 
-def fix_card(later: bool = False) -> None:
+def fix_card() -> None:
     note = _current_note()
     if note:
-        FixDialog(note, later).exec()
+        FixDialog(note).exec()
 
 
 class HistoryDialog(QDialog):
@@ -463,14 +452,12 @@ def _report_deletions(col, note_ids) -> None:
 
 def _shortcuts(state: str, shortcuts: list) -> None:
     if state == "review":
-        shortcuts.append(("f", lambda: fix_card(later=False)))
-        shortcuts.append(("Shift+F", lambda: fix_card(later=True)))
+        shortcuts.append(("f", fix_card))
 
 
 def _context_menu(reviewer, menu: QMenu) -> None:
     menu.addSeparator()
-    menu.addAction("AnkiHelper: fix this card  (F)", lambda: fix_card(later=False))
-    menu.addAction("AnkiHelper: fix in next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("AnkiHelper: fix this card  (F)", fix_card)
     menu.addAction("AnkiHelper: optimize this card", optimize_card)
     menu.addAction("AnkiHelper: history of this card", show_history)
 
@@ -497,7 +484,7 @@ BUTTON_JS = """
   if (!editCell) return;
   var button = document.createElement("button");
   button.id = "ankihelper-button";
-  button.title = "AnkiHelper: fix this card (F), fix it in the next batch (Shift+F) or see its history";
+  button.title = "AnkiHelper: fix this card (F), optimize it, or see its history";
   button.textContent = "✎ AnkiHelper";
   button.onclick = function () { pycmd("ankihelper:menu"); };
   editCell.appendChild(button);
@@ -524,8 +511,7 @@ def _question_shown(card) -> None:
 
 def _review_menu() -> None:
     menu = QMenu(mw)
-    menu.addAction("Fix this card now  (F)", lambda: fix_card(later=False))
-    menu.addAction("Fix it in the next batch  (Shift+F)", lambda: fix_card(later=True))
+    menu.addAction("Fix this card  (F)", fix_card)
     menu.addAction("✨ Optimize this card", optimize_card)
     menu.addAction("History of this card", show_history)
     menu.exec(QCursor.pos())
@@ -541,7 +527,7 @@ def _on_js_message(handled: tuple, message: str, context) -> tuple:
 def _menu() -> None:
     menu = QMenu("AnkiHelper", mw)
     for title, handler in (
-        ("Fix current card  (F)", lambda: fix_card(later=False)),
+        ("Fix current card  (F)", fix_card),
         ("Optimize current card", optimize_card),
         ("History of current card", show_history),
         ("Open AnkiHelper", open_app),

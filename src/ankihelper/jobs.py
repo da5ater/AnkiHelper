@@ -1,4 +1,4 @@
-"""Apply a personal rule to cards already in Anki, in the background, a few cards at a time.
+"""Apply a personal rule to cards already in Anki, in the background, one batch of cards at a time.
 
 A job is a frozen list of note ids plus a cursor, saved after every batch, so it resumes exactly where it
 stopped. Every card it changes is backed up first so one card or the whole job can be undone. When the
@@ -15,8 +15,8 @@ from filelock import FileLock, Timeout
 from . import agents, config, review
 from .config import Config
 
-BATCH = 10
-"""Cards per agent call: small enough that the agent judges each card on its own."""
+MAX_BATCH = 100
+"""Upper bound on the configured batch size: beyond this one agent call juggles too many cards."""
 RUNNING, PAUSED, DONE = "running", "paused", "done"
 SCOPES = {
     "ankihelper": ("Cards AnkiHelper made", "tag:manual_voice"),
@@ -138,7 +138,8 @@ def run_batch(cfg: Config, anki) -> dict | None:
         if not jobs:
             return None
         job = jobs[0]
-        ids = job["queue"][job["next"] : job["next"] + BATCH]
+        size = max(1, min(cfg.rule_batch_size, MAX_BATCH))
+        ids = job["queue"][job["next"] : job["next"] + size]
         if not ids:
             _update(job["id"], lambda j: j.update(status=DONE))
             return {"job": job["id"], "done": True}

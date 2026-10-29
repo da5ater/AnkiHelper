@@ -53,6 +53,8 @@ class Config:
     root_deck: str = "manual"
     note_type: str = "Basic+"
     language: str = "English"
+    rule_batch_size: int = 50
+    """Cards per agent call when a rule is applied to existing cards."""
     github_account: str = "da5ater"
     """gh account that pushes branches and opens PRs for proposed rules."""
     last_topic: str = ""

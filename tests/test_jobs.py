@@ -20,10 +20,10 @@ def changes_every_other_card(name, text, timeout=600, images=None):
     ]})
 
 
-def test_a_rule_job_works_through_cards_ten_at_a_time_and_resumes(fake_anki, monkeypatch):
+def test_a_rule_job_works_through_cards_one_batch_at_a_time_and_resumes(fake_anki, monkeypatch):
     anki = make_cards(fake_anki, 23)
     monkeypatch.setattr(agents, "ask", changes_every_other_card)
-    cfg = Config(anki_url=fake_anki.url)
+    cfg = Config(anki_url=fake_anki.url, rule_batch_size=10)
     job = jobs.start(cfg, anki, "Keep examples minimal.", "all")
     assert len(job["queue"]) == 23
 
@@ -94,3 +94,18 @@ def test_optimizing_an_existing_card_keeps_it_unless_asked_to_replace(fake_anki,
     assert len(fake_anki.notes) == 2, "the first card rewrote the original in place; one card was added"
     assert "Cleaned question?" in fake_anki.notes[0]["fields"]["Front"]
     assert fake_anki.notes[1]["deckName"] == "other"
+
+
+def test_default_batch_is_fifty_cards(fake_anki, monkeypatch):
+    anki = make_cards(fake_anki, 60)
+    monkeypatch.setattr(agents, "ask", changes_every_other_card)
+    cfg = Config(anki_url=fake_anki.url)
+    jobs.start(cfg, anki, "Keep examples minimal.", "all")
+    assert jobs.run_batch(cfg, anki)["checked"] == 50
+
+
+def test_a_successful_fix_now_clears_its_saved_request():
+    bridge.flag(5, "shorter")
+    bridge.flag(6, "ask why")
+    bridge.unflag_note(5)
+    assert [i["note_id"] for i in bridge.list_flagged()] == [6]

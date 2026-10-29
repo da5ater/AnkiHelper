@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -98,7 +99,7 @@ class SettingsPage(Page):
         layout.addSpacing(8)
         layout.addWidget(label("Rule updates", "sectionTitle"))
         layout.addWidget(label(
-            "Apply a rule to cards you already have. It runs in the background while Anki is open, 10 cards at a time, "
+            "Apply a rule to cards you already have. It runs in the background while Anki is open, one batch of cards at a time, "
             "and only changes cards the rule applies to. Every change can be undone, and when you push back on an updated "
             "card in Anki (F), the rule is reworded and the cards already updated are rechecked.",
             "muted", wrap=True,
@@ -116,6 +117,17 @@ class SettingsPage(Page):
         start_row.addWidget(self.job_scope, 2)
         start_row.addWidget(self.job_start)
         layout.addLayout(start_row)
+        size_row = QHBoxLayout()
+        size_row.addWidget(label("Cards per batch", "muted"))
+        self.batch_size = QSpinBox()
+        self.batch_size.setRange(5, jobs.MAX_BATCH)
+        self.batch_size.setSingleStep(5)
+        self.batch_size.setValue(cfg.rule_batch_size)
+        self.batch_size.setToolTip("How many cards the agent judges in one call. Smaller batches are slower but more careful.")
+        self.batch_size.valueChanged.connect(self._set_batch_size)
+        size_row.addWidget(self.batch_size)
+        size_row.addStretch()
+        layout.addLayout(size_row)
         self.job_status = label("", "faint", wrap=True)
         layout.addWidget(self.job_status)
         self.job_list = QVBoxLayout()
@@ -188,6 +200,10 @@ class SettingsPage(Page):
         self.reload_rules()
         self.prefill_rule(rule)
         self.job_status.setText("Rule added. Apply it to your existing cards with ▶ below, or leave it for new cards only.")
+
+    def _set_batch_size(self, value: int) -> None:
+        self.cfg.rule_batch_size = value
+        self.cfg.save()
 
     def prefill_rule(self, rule: str) -> None:
         self.reload_jobs()

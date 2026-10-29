@@ -141,3 +141,31 @@ def test_a_conversation_is_kept_as_learning_material(monkeypatch):
     [event] = learning.pending()
     assert event["kind"] == "conversation" and "too much, shorten the controller part" in event["transcript"][-1]
     assert notes.find(9)["card"]["question"].startswith("Write a minimal Rails controller")
+
+
+def test_the_tutor_can_propose_new_cards_and_they_are_remembered(monkeypatch):
+    from ankihelper import learning
+
+    reply = {
+        "reply": "Service discovery is how services **find each other** at runtime.",
+        "new_cards": [{"question": "In microservices, what problem does a service registry solve?", "answer": "Lets services find each other's current addresses.", "bloom": "understand"}],
+    }
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: json.dumps(reply))
+    turn = bridge.chat(Config(), 11, "<p>What is service discovery?</p>", "<p>?</p>", [{"role": "learner", "text": "teach me this"}], None)
+
+    assert "<strong>find each other</strong>" in turn["reply_html"]
+    assert "card" not in turn, "teaching alone does not change the card"
+    [card] = turn["new_cards"]
+    assert "service registry" in card["front"] and "ah::chat" in card["tags"]
+
+    bridge.finish_chat(Config(), 11, {"question": "<p>What is service discovery?</p>", "answer": "<p>?</p>"}, None, [{"role": "learner", "text": "teach me this"}], [], [card])
+    [event] = learning.pending()
+    assert event["added_cards"][0]["question"].startswith("In microservices")
+
+
+def test_a_reason_given_after_an_edit_reaches_learning():
+    from ankihelper import learning
+
+    bridge.report({"events": [{"kind": "edit", "note_id": 3, "before": {"question": "q", "answer": "a"}, "after": {"question": "q", "answer": "b"}, "why": "learned it from ChatGPT"}]})
+    [event] = learning.pending()
+    assert learning._describe(event)["why"] == "learned it from ChatGPT"

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from anki import hooks
 from aqt import gui_hooks, mw
-from aqt.operations.note import update_note
+from aqt.operations.note import add_note, update_note
 from aqt.qt import (
     QAction,
     QCursor,
@@ -159,10 +159,28 @@ def _save(note_id: int, fields: dict[str, str], add_tags: list[str], message: st
     update_note(parent=mw, note=note).success(saved).failure(failed).run_in_background()
 
 
+QUICK_ASKS = [
+    ("📖 Teach me this", "I don't really understand this card yet. Teach me the idea behind it, simply."),
+    ("💡 Give an example", "Give me a concrete example of this."),
+    ("✍ Add this to the card", "Add what we just discussed to this card, keeping it one focused card."),
+    ("➕ Make a card about this", "Make new cards about what you just taught me, so Anki asks me about it."),
+]
+CHAT_CSS = """
+body { font-size: 14px; }
+table.me { margin: 6px 0 6px 80px; }
+table.ah { margin: 6px 80px 6px 0; }
+td.me { background: #3b2f6b; color: #f1ecff; padding: 10px 12px; }
+td.ah { background: #262238; color: #ece9ff; padding: 10px 12px; }
+td.newcard { background: #1f3b33; color: #e6fff6; padding: 10px 12px; }
+.who { color: #9c94cc; font-size: 11px; font-weight: bold; }
+a { color: #f472b6; font-weight: bold; }
+"""
+
+
 class FixDialog(QDialog):
-    """Talk with AnkiHelper about the card in front of you: ask why, disagree, try other examples. The card
-    preview updates as you go; OK saves the latest version and keeps the conversation so AnkiHelper learns
-    what you meant, not just what changed."""
+    """A tutor next to the card you are studying: learn what it means, ask anything, change the card, or turn
+    what you learned into new cards. OK saves the latest version of the card and keeps the conversation so
+    AnkiHelper learns what you meant."""
 
     def __init__(self, note):
         super().__init__(mw)
@@ -170,26 +188,42 @@ class FixDialog(QDialog):
         self.cancelled = False
         self.sides = _sides(note)
         self.before = {"question": note[self.sides[0]], "answer": note[self.sides[1]]} if self.sides else {}
+        card_ids = note.card_ids()
+        self.deck_id = mw.col.get_card(card_ids[0]).did if card_ids else None
         self.messages: list[dict] = []
+        self.bubbles: list[str] = []
+        self.proposals: list[dict] = []
+        self.added: list[dict] = []
         self.draft: dict | None = None
         self.draft_html: tuple[str, str] | None = None
-        self.setWindowTitle("AnkiHelper · this card")
-        self.resize(680, 720)
+        self.setWindowTitle("AnkiHelper · study this card")
+        self.resize(760, 820)
         layout = QVBoxLayout(self)
         self.card_label = QLabel("<b>The card</b>")
         layout.addWidget(self.card_label)
         self.preview = QTextBrowser()
         self.preview.setSearchPaths([mw.col.media.dir()])
-        layout.addWidget(self.preview, 3)
-        layout.addWidget(QLabel("<b>Conversation</b>"))
+        self.preview.setMaximumHeight(220)
+        layout.addWidget(self.preview)
         self.chat = QTextBrowser()
-        layout.addWidget(self.chat, 2)
+        self.chat.document().setDefaultStyleSheet(CHAT_CSS)
+        self.chat.setOpenLinks(False)
+        self.chat.anchorClicked.connect(self._clicked)
+        layout.addWidget(self.chat, 1)
+        quick = QHBoxLayout()
+        self.quick_buttons = []
+        for title, text in QUICK_ASKS:
+            button = QPushButton(title)
+            button.clicked.connect(lambda _=False, text=text: self.send(text))
+            quick.addWidget(button)
+            self.quick_buttons.append(button)
+        layout.addLayout(quick)
         row = QHBoxLayout()
         self.text = QLineEdit()
-        self.text.setPlaceholderText("Ask or tell it anything: why this example? · make me write it instead · shorter")
-        self.text.returnPressed.connect(self.send)
+        self.text.setPlaceholderText("Ask anything: what does this mean? · why this example? · shorter · ask me about this")
+        self.text.returnPressed.connect(lambda: self.send(self.text.text()))
         self.send_button = QPushButton("Send")
-        self.send_button.clicked.connect(self.send)
+        self.send_button.clicked.connect(lambda: self.send(self.text.text()))
         row.addWidget(self.text, 1)
         row.addWidget(self.send_button)
         layout.addLayout(row)
@@ -198,45 +232,56 @@ class FixDialog(QDialog):
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
         close = QPushButton("Close")
-        close.setToolTip("Leave the card as it was")
+        close.setToolTip("Leave the card as it was (cards you already added stay)")
         close.clicked.connect(self.reject)
         self.ok = QPushButton("OK, keep this card")
-        self.ok.setToolTip("Save the latest version and let AnkiHelper learn from this conversation")
+        self.ok.setToolTip("Save the latest version of the card and let AnkiHelper learn from this conversation")
         self.ok.clicked.connect(self.finish)
         buttons.addStretch()
         buttons.addWidget(close)
         buttons.addWidget(self.ok)
         layout.addLayout(buttons)
         self._show_card()
+        self._bubble("ah", "Hi! Ask me anything about this card: what it means, why, an example. When something clicks, I can add it to the card or make new cards about it.")
         if not self.sides:
             self.status.setText(UNSUPPORTED)
-            self.send_button.setEnabled(False)
+            self._set_busy(True)
             self.ok.setEnabled(False)
         self.text.setFocus()
 
     def _show_card(self) -> None:
         front, back = self.draft_html or (self.before.get("question", ""), self.before.get("answer", ""))
-        self.card_label.setText("<b>New version</b> (not saved until you press OK)" if self.draft_html else "<b>The card</b>")
+        self.card_label.setText("<b>New version of the card</b> · saved when you press OK" if self.draft_html else "<b>The card</b>")
         self.preview.setHtml(f"{front}<hr>{back}")
 
-    def _show_chat(self) -> None:
-        lines = []
-        for m in self.messages:
-            who = "You" if m["role"] == "learner" else "AnkiHelper"
-            text = m["text"].replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br>")
-            lines.append(f"<p><b>{who}:</b> {text}</p>")
-        self.chat.setHtml("".join(lines))
+    def _bubble(self, who: str, html: str) -> None:
+        label = "You" if who == "me" else "AnkiHelper"
+        align = "right" if who == "me" else "left"
+        body = html if html.lstrip().startswith("<") else f"<p>{html}</p>"
+        self.bubbles.append(
+            f"<table class='{who}' align='{align}' cellspacing='0'><tr><td class='{who}'>"
+            f"<div class='who'>{label}</div>{body}</td></tr></table><br clear='all'>"
+        )
+        self._render_chat()
+
+    def _render_chat(self, thinking: bool = False) -> None:
+        extra = "<p class='who'>AnkiHelper is thinking…</p>" if thinking else ""
+        self.chat.setHtml("".join(self.bubbles) + extra)
         self.chat.verticalScrollBar().setValue(self.chat.verticalScrollBar().maximum())
 
-    def send(self) -> None:
-        said = self.text.text().strip()
+    def _set_busy(self, busy: bool) -> None:
+        for button in [self.send_button, *self.quick_buttons]:
+            button.setEnabled(not busy)
+
+    def send(self, said: str) -> None:
+        said = said.strip()
         if not said or not self.sides or not self.send_button.isEnabled():
             return
         self.text.clear()
         self.messages.append({"role": "learner", "text": said})
-        self._show_chat()
-        self.send_button.setEnabled(False)
-        self.status.setText("⏳ AnkiHelper is thinking…")
+        self._bubble("me", said.replace("&", "&amp;").replace("<", "&lt;"))
+        self._set_busy(True)
+        self._render_chat(thinking=True)
         payload = {
             "note_id": self.note.id,
             "question_html": self.before["question"],
@@ -248,30 +293,75 @@ class FixDialog(QDialog):
 
     def reject(self) -> None:
         self.cancelled = True
+        if self.messages or self.added:
+            self._report(draft=None)
         super().reject()
 
     def _answered(self, reply: dict) -> None:
         if self.cancelled:
             return
-        self.send_button.setEnabled(True)
+        self._set_busy(False)
         if "error" in reply:
+            self._render_chat()
             self.status.setText(f"⚠ {reply['error']}")
             return
         self.status.setText("")
         self.messages.append({"role": "agent", "text": reply["reply"]})
+        html = reply.get("reply_html") or reply["reply"]
         if reply.get("card"):
             self.draft = reply["card"]
             self.draft_html = (reply["front"], reply["back"])
             self._show_card()
-        self._show_chat()
+            html += "<p><i>↑ I updated the card above. Press OK to keep it.</i></p>"
+        self._bubble("ah", html)
+        for card in reply.get("new_cards") or []:
+            self.proposals.append(card)
+            index = len(self.proposals) - 1
+            self.bubbles.append(
+                f"<table class='ah' align='left' cellspacing='0'><tr><td class='newcard'>"
+                f"<div class='who'>NEW CARD</div>{card['front']}<hr>{card['back']}"
+                f"<p><a href='add:{index}'>＋ Add to Anki</a></p></td></tr></table><br clear='all'>"
+            )
+        self._render_chat()
         self.text.setFocus()
+
+    def _clicked(self, url) -> None:
+        action, _, index = url.toString().partition(":")
+        if action != "add" or not index.isdigit() or int(index) >= len(self.proposals):
+            return
+        card = self.proposals[int(index)]
+        if card.get("added") or self.deck_id is None:
+            return
+        new = mw.col.new_note(self.note.note_type())
+        new[self.sides[0]], new[self.sides[1]] = card["front"], card["back"]
+        for tag in card.get("tags", []):
+            new.add_tag(tag)
+        card["added"] = True
+        self.added.append(card)
+
+        def done(_changes) -> None:
+            tooltip("Added to Anki.")
+            self.bubbles = [b.replace(f"<a href='add:{index}'>＋ Add to Anki</a>", "✓ Added to Anki") for b in self.bubbles]
+            self._render_chat()
+
+        add_note(parent=self, note=new, target_deck_id=self.deck_id).success(done).run_in_background()
+
+    def _report(self, draft: dict | None) -> None:
+        payload = {
+            "note_id": self.note.id,
+            "before": self.before,
+            "draft": draft,
+            "messages": self.messages,
+            "tags": list(self.note.tags),
+            "added": [{"question": c["question"], "answer": c["answer"]} for c in self.added],
+        }
+        call("chat-done", payload, lambda r: tooltip(f"Rule updated from your reasoning: {r['rule_updated']}") if r.get("rule_updated") else None)
 
     def finish(self) -> None:
         if self.draft_html:
             _save(self.note.id, {self.sides[0]: self.draft_html[0], self.sides[1]: self.draft_html[1]}, ["ah::fixed"], "Saved the new version. Edit → Undo brings the old one back.")
-        if self.messages:
-            payload = {"note_id": self.note.id, "before": self.before, "draft": self.draft, "messages": self.messages, "tags": list(self.note.tags)}
-            call("chat-done", payload, lambda r: tooltip(f"Rule updated from your reasoning: {r['rule_updated']}") if r.get("rule_updated") else None)
+        if self.messages or self.added:
+            self._report(self.draft)
         self.accept()
 
 
@@ -401,6 +491,48 @@ def _snapshot(note) -> dict | None:
     return {"question": text_of(note[sides[0]]), "answer": text_of(note[sides[1]])}
 
 
+def _config() -> dict:
+    return mw.addonManager.getConfig(__name__) or {}
+
+
+def _set_ask_why(on: bool) -> None:
+    mw.addonManager.writeConfig(__name__, {**_config(), "ask_why_after_edit": on})
+    tooltip("AnkiHelper will ask why after your edits." if on else "AnkiHelper won't ask why after your edits.")
+
+
+class WhyDialog(QDialog):
+    """One optional line after a hand edit: the learner's reason is the best thing AnkiHelper can learn from."""
+
+    def __init__(self, events: list[dict]):
+        super().__init__(mw)
+        self.events = events
+        self.setWindowTitle("AnkiHelper · why?")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        first = events[0]
+        what = "these cards" if len(events) > 1 else f"<i>{first['after']['question'][:120]}</i>"
+        layout.addWidget(QLabel(f"You changed {what}. Why? <span style='color:gray'>(optional, one line)</span>"))
+        self.text = QLineEdit()
+        self.text.setPlaceholderText("e.g. the example was too abstract · I learned it properly elsewhere and added the key point")
+        self.text.returnPressed.connect(self.accept)
+        layout.addWidget(self.text)
+        buttons = QHBoxLayout()
+        skip = QPushButton("Skip")
+        skip.clicked.connect(self.reject)
+        save = QPushButton("Save reason")
+        save.setDefault(True)
+        save.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(skip)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+        self.finished.connect(self._send)
+
+    def _send(self, result: int) -> None:
+        why = self.text.text().strip() if result == QDialog.DialogCode.Accepted else ""
+        call("event", {"events": [{**e, "why": why} if why else e for e in self.events]})
+
+
 def _report_edits(befores: dict[int, dict]) -> None:
     events = []
     for note_id, before in befores.items():
@@ -414,7 +546,11 @@ def _report_edits(befores: dict[int, dict]) -> None:
         if after and after != before:
             info = _describe(note)
             events.append({"kind": "edit", "note_id": note_id, "model": info["model"], "deck": info["deck"], "tags": info["tags"], "before": before, "after": after})
-    if events:
+    if not events:
+        return
+    if _config().get("ask_why_after_edit") and len(events) <= 3:
+        WhyDialog(events).open()
+    else:
         call("event", {"events": events})
 
 
@@ -573,6 +709,12 @@ def _menu() -> None:
         action = QAction(title, mw)
         action.triggered.connect(handler)
         menu.addAction(action)
+    menu.addSeparator()
+    ask_why = QAction("Ask why after my edits", mw)
+    ask_why.setCheckable(True)
+    ask_why.setChecked(bool(_config().get("ask_why_after_edit")))
+    ask_why.toggled.connect(_set_ask_why)
+    menu.addAction(ask_why)
     mw.form.menuTools.addMenu(menu)
 
 

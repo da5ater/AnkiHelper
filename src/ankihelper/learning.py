@@ -79,6 +79,10 @@ def _describe(event: dict) -> dict:
     for key in ("question", "answer"):
         if key in event:
             keep[key] = _short(str(event[key]))
+    if event.get("why"):
+        keep["why"] = _short(str(event["why"]), 400)
+    if isinstance(event.get("added_cards"), list):
+        keep["added_cards"] = [{k: _short(str(v)) for k, v in c.items()} for c in event["added_cards"]]
     if isinstance(event.get("transcript"), list):
         keep["transcript"] = [_short(str(line), 400) for line in event["transcript"]]
     if isinstance(event.get("sample"), list):

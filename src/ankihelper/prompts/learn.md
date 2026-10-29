@@ -2,7 +2,7 @@ A learner uses an AI to turn their notes into Anki flashcards. Below is what the
 
 Find PATTERNS that say how they want their cards, and turn each into one short general rule for writing future cards.
 
-Look for MEANING, not surface measurements. "Answers got 20 characters shorter" is weak; "they replace abstract examples with everyday ones from their own work", "they want to write the code themselves, but only a few lines", "they ask why until the card explains the reason, so cards should state the why" are the kind of preferences that matter. Conversations are the richest evidence: read what they objected to, what they asked about, and what they finally accepted.
+Look for MEANING, not surface measurements. "Answers got 20 characters shorter" is weak; "they replace abstract examples with everyday ones from their own work", "they want to write the code themselves, but only a few lines", "they ask why until the card explains the reason, so cards should state the why" are the kind of preferences that matter. Conversations are the richest evidence: read what they objected to, what they asked about, what they had to be taught before the card made sense, which new cards they chose to add, and what they finally accepted. An edit with a "why" is the learner telling you their reason in their own words; weigh it heavily.
 
 - A pattern needs at least 3 events behind it. One-off changes about a single card's facts are not patterns.
 - Deletions matter: if they keep deleting a kind of card (a group such as "optimized", a Bloom level such as "ah::bloom::create", a strategy such as "cloze", very long answers, trivia about one topic), the rule should say not to write that kind, or to write it differently.

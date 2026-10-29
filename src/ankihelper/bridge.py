@@ -94,17 +94,36 @@ def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messag
         messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-30:]),
     )
     reply = agents.extract_json(agents.ask(cfg.agent, text))
-    answer = {"reply": str(reply.get("reply") or "").strip() or "OK."}
+    said = str(reply.get("reply") or "").strip() or "OK."
+    answer: dict = {"reply": said, "reply_html": render.to_html(said)}
     raw = reply.get("card")
     if isinstance(raw, dict) and raw.get("question") and raw.get("answer"):
         card = Card.parse({**(record["card"] if record else {}), **raw, "source_id": entry.id if entry else "", "changed": True})
         answer["card"] = {"question": card.question, "answer": card.answer, "bloom": card.bloom}
         answer["front"] = render.question_html(card.question) + _images_in(question_html)
         answer["back"] = render.to_html(card.answer) + _images_in(answer_html)
+    new_cards = []
+    for raw_new in (reply.get("new_cards") or [])[:3]:
+        if isinstance(raw_new, dict) and raw_new.get("question") and raw_new.get("answer"):
+            card = Card.parse({**raw_new, "source_id": entry.id if entry else "", "changed": True, "group": "chat"})
+            tags = ["ah::chat", f"ah::bloom::{card.bloom}"] if card.bloom else ["ah::chat"]
+            new_cards.append(
+                {
+                    "question": card.question,
+                    "answer": card.answer,
+                    "front": render.question_html(card.question),
+                    "back": render.to_html(card.answer),
+                    "tags": tags,
+                }
+            )
+    if new_cards:
+        answer["new_cards"] = new_cards
     return answer
 
 
-def finish_chat(cfg: Config, note_id: int, before_html: dict, draft: dict | None, messages: list[dict], tags: list[str]) -> dict:
+def finish_chat(
+    cfg: Config, note_id: int, before_html: dict, draft: dict | None, messages: list[dict], tags: list[str], added: list[dict] | None = None
+) -> dict:
     """The learner pressed OK: remember the card and the whole conversation, which is what learning reads."""
     before = {"question": text_of(before_html["question"]), "answer": text_of(before_html["answer"])}
     record = notes.find(note_id)
@@ -119,6 +138,7 @@ def finish_chat(cfg: Config, note_id: int, before_html: dict, draft: dict | None
             "before": before,
             "after": draft or before,
             "transcript": [f"{m['role']}: {m['text']}" for m in messages[-30:]],
+            "added_cards": [{"question": c["question"], "answer": c["answer"]} for c in added or []],
         }
     )
     unflag_note(note_id)

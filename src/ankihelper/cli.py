@@ -98,7 +98,13 @@ def cmd_anki(args) -> int:
             )
         elif args.action == "chat-done":
             reply = bridge.finish_chat(
-                cfg, int(request["note_id"]), request["before"], request.get("draft"), request["messages"], request.get("tags") or []
+                cfg,
+                int(request["note_id"]),
+                request["before"],
+                request.get("draft"),
+                request["messages"],
+                request.get("tags") or [],
+                request.get("added") or [],
             )
         elif args.action == "unflag":
             bridge.unflag_note(int(request["note_id"]))

@@ -91,7 +91,7 @@ def test_history_offers_the_versions_shown_in_preview():
     assert history["siblings"] == [{"note_id": 4, "question": "Which service encrypts?", "group": "atomic"}]
     [version] = history["versions"]
     assert "Who audits API calls?" in version["cards"][0]["front"]
-    assert bridge.history(404) == {"known": False}
+    assert bridge.history(404) == {"known": False, "changes": []}
 
 
 def test_cli_speaks_json_to_the_addon(monkeypatch, capsys):
@@ -155,3 +155,19 @@ def test_a_failed_learning_run_does_not_get_stuck(monkeypatch):
     except agents.AgentError:
         pass
     assert learning.pending() == []
+
+
+def test_history_shows_changes_to_a_card_ankihelper_did_not_make():
+    before_html = {"question": "<p>What is the difference between has_one and belongs_to?</p>", "answer": "<p>Long answer</p>"}
+    draft = {"question": "has_one vs belongs_to: which model holds the foreign key?", "answer": "The belongs_to side."}
+    messages = [{"role": "learner", "text": "teach me this"}, {"role": "agent", "text": "..."}, {"role": "learner", "text": "add the foreign key part to the card"}]
+
+    bridge.finish_chat(Config(), 77, before_html, draft, messages, ["agent"])
+
+    history = bridge.history(77)
+    assert history["known"] is False
+    [change] = history["changes"]
+    assert change["kind"] == "Conversation with AnkiHelper"
+    assert change["said"] == "teach me this / add the foreign key part to the card"
+    assert change["after"]["question"].startswith("has_one vs belongs_to")
+    assert change["restore"] == before_html, "the earlier version can be put back"

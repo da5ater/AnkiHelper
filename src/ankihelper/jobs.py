@@ -111,8 +111,22 @@ def _rewritable(anki, info: dict, models: dict) -> bool:
     return models[name]
 
 
+def backups_for(note_id: int) -> list[dict]:
+    path = _backups_path()
+    if not path.exists():
+        return []
+    return [line for line in (json.loads(raw) for raw in path.read_text().splitlines() if raw.strip()) if line["note_id"] == note_id]
+
+
 def _backup(job: dict, note_id: int, fields: dict) -> None:
-    line = {"job": job["id"], "version": job["version"], "note_id": note_id, "fields": fields, "time": datetime.now().isoformat(timespec="seconds")}
+    line = {
+        "job": job["id"],
+        "version": job["version"],
+        "rules": rules_of(job),
+        "note_id": note_id,
+        "fields": fields,
+        "time": datetime.now().isoformat(timespec="seconds"),
+    }
     with _backups_path().open("a") as f:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 

@@ -66,6 +66,7 @@ def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, fee
             "note_id": note_id,
             "feedback": feedback,
             "before": current,
+            "before_html": {"question": question_html, "answer": answer_html},
             "after": {"question": card.question, "answer": card.answer},
         }
     )
@@ -137,6 +138,7 @@ def finish_chat(
             "tags": tags,
             "before": before,
             "after": draft or before,
+            **({"before_html": before_html} if draft else {}),
             "transcript": [f"{m['role']}: {m['text']}" for m in messages[-30:]],
             "added_cards": [{"question": c["question"], "answer": c["answer"]} for c in added or []],
         }
@@ -297,11 +299,53 @@ def unflag_note(note_id: int) -> None:
             unflag(item)
 
 
+CHANGE_LABELS = {"conversation": "Conversation with AnkiHelper", "fix": "Fixed by AnkiHelper", "edit": "Your own edit", "rule": "Rule update"}
+
+
+def changes(note_id: int) -> list[dict]:
+    """Everything that happened to one note, oldest first, for any card in Anki: conversations, fixes,
+    hand edits and rule updates. Changes AnkiHelper made carry the earlier version so it can be restored."""
+    found = []
+    for event in learning.events_for(note_id):
+        kind = event.get("kind")
+        if kind not in CHANGE_LABELS:
+            continue
+        said = event.get("why") or event.get("feedback") or ""
+        if kind == "conversation":
+            said = " / ".join(line[len("learner: ") :] for line in event.get("transcript", []) if line.startswith("learner: "))
+        found.append(
+            {
+                "time": event.get("time", ""),
+                "kind": CHANGE_LABELS[kind],
+                "said": said,
+                "before": event.get("before") or {},
+                "after": event.get("after") or {},
+                "added_cards": event.get("added_cards") or [],
+                "restore": event.get("before_html"),
+            }
+        )
+    for backup in jobs.backups_for(note_id):
+        values = list(backup["fields"].values())
+        found.append(
+            {
+                "time": backup.get("time", ""),
+                "kind": CHANGE_LABELS["rule"],
+                "said": "; ".join(backup.get("rules") or []),
+                "before": {"question": text_of(values[0]), "answer": text_of(values[1])},
+                "after": {},
+                "added_cards": [],
+                "restore": {"question": values[0], "answer": values[1]},
+            }
+        )
+    return sorted(found, key=lambda c: c["time"])
+
+
 def history(note_id: int) -> dict:
-    """Where a note came from: the learner's original note, its sibling cards and the versions it was offered."""
+    """Where a note came from and everything that happened to it since. Cards AnkiHelper made also show
+    the learner's original note, their sibling cards and the versions offered in Preview."""
     record = notes.find(note_id)
     if not record:
-        return {"known": False}
+        return {"known": False, "changes": changes(note_id)}
     entry = Entry(**record["entry"])
     versions = []
     for version in record["card"].get("versions") or []:
@@ -322,6 +366,7 @@ def history(note_id: int) -> dict:
             if s["note_id"] != note_id
         ],
         "versions": versions,
+        "changes": changes(note_id),
     }
 
 

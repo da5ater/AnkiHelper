@@ -49,6 +49,11 @@ def _seen() -> int:
     return json.loads(path.read_text()).get("seen", 0) if path.exists() else 0
 
 
+def events_for(note_id: int) -> list[dict]:
+    with _lock():
+        return [e for e in _events() if e.get("note_id") == note_id]
+
+
 def pending() -> list[dict]:
     with _lock():
         return _events()[_seen() :]

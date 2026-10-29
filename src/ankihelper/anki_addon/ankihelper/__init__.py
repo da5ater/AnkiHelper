@@ -94,6 +94,10 @@ def call(action: str, payload: dict, on_done=None) -> None:
     mw.taskman.run_in_background(lambda: _run(action, payload), finished, uses_collection=False)
 
 
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+
 def text_of(fragment: str) -> str:
     fragment = re.sub(r"(?i)<br\s*/?>|</(p|div|li|pre|tr)>", "\n", fragment)
     return unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
@@ -396,42 +400,71 @@ class HistoryDialog(QDialog):
         if "error" in reply:
             self.view.setHtml(f"<p>⚠ {reply['error']}</p>")
             return
-        if not reply.get("known"):
-            self.view.setHtml("<p>This card was not made by AnkiHelper, so there is no history for it.</p>")
-            return
-        entry, media = reply["entry"], reply["media_dir"]
-        parts = [
-            "<h3>Your note</h3>",
-            f"<p><b>{entry['question'] or '(the question was a picture)'}</b><br>{entry['answer']}</p>",
-            f"<p style='color:gray'>{entry['topic']} · {entry['created']}</p>",
-        ]
-        for image in entry["images"]:
-            parts.append(f"<p><img src='{media}/{image['file']}' width='260'></p>")
-        card = reply["card"]
-        parts.append(f"<p style='color:gray'>This card: group <b>{card.get('group', 'main')}</b>, Bloom <b>{card.get('bloom') or '?'}</b></p>")
-        siblings = [s for s in reply["siblings"] if _exists(s["note_id"])]
-        if siblings:
-            parts.append("<h3>Other cards from the same note</h3><ul>")
-            parts += [f"<li>[{s['group']}] {s['question']}</li>" for s in siblings]
-            parts.append("</ul>")
-        if reply["versions"]:
-            parts.append("<h3>Versions you were offered</h3>")
-            for v_index, version in enumerate(reply["versions"]):
-                parts.append(f"<p><b>✨ {version['style']}</b><br><span style='color:gray'>{version['why']}</span></p>")
-                for c_index, item in enumerate(version["cards"]):
-                    parts.append(
-                        f"<div style='border:1px solid #888; padding:8px'>{item['front']}<hr>{item['back']}</div>"
-                        f"<p><a href='use:{v_index}:{c_index}'>Use this version</a></p>"
-                    )
+        parts = []
+        if reply.get("known"):
+            entry, media = reply["entry"], reply["media_dir"]
+            parts += [
+                "<h3>Your note</h3>",
+                f"<p><b>{entry['question'] or '(the question was a picture)'}</b><br>{entry['answer']}</p>",
+                f"<p style='color:gray'>{entry['topic']} · {entry['created']}</p>",
+            ]
+            for image in entry["images"]:
+                parts.append(f"<p><img src='{media}/{image['file']}' width='260'></p>")
+            card = reply["card"]
+            parts.append(f"<p style='color:gray'>This card: group <b>{card.get('group', 'main')}</b>, Bloom <b>{card.get('bloom') or '?'}</b></p>")
+            siblings = [s for s in reply["siblings"] if _exists(s["note_id"])]
+            if siblings:
+                parts.append("<h3>Other cards from the same note</h3><ul>")
+                parts += [f"<li>[{s['group']}] {s['question']}</li>" for s in siblings]
+                parts.append("</ul>")
+            if reply["versions"]:
+                parts.append("<h3>Versions you were offered</h3>")
+                for v_index, version in enumerate(reply["versions"]):
+                    parts.append(f"<p><b>✨ {version['style']}</b><br><span style='color:gray'>{version['why']}</span></p>")
+                    for c_index, item in enumerate(version["cards"]):
+                        parts.append(
+                            f"<div style='border:1px solid #888; padding:8px'>{item['front']}<hr>{item['back']}</div>"
+                            f"<p><a href='use:{v_index}:{c_index}'>Use this version</a></p>"
+                        )
+        history = reply.get("changes") or []
+        if history:
+            parts.append("<h3>What changed</h3>")
+            for index, change in reversed(list(enumerate(history))):
+                before, after = change["before"], change["after"]
+                parts.append(f"<p><b>{change['kind']}</b> <span style='color:gray'>· {change['time'].replace('T', ' ')}</span></p>")
+                if change["said"]:
+                    parts.append(f"<p style='color:gray'>You said: <i>{_escape(change['said'][:400])}</i></p>")
+                if before:
+                    parts.append(f"<p><span style='color:gray'>Before:</span> {_escape(before.get('question', ''))}<br>{_escape(before.get('answer', '')[:300])}</p>")
+                if after and after != before:
+                    parts.append(f"<p><span style='color:gray'>After:</span> {_escape(after.get('question', ''))}<br>{_escape(after.get('answer', '')[:300])}</p>")
+                for added in change["added_cards"]:
+                    parts.append(f"<p style='color:gray'>＋ New card added: {_escape(added['question'])}</p>")
+                if change.get("restore"):
+                    parts.append(f"<p><a href='restore:{index}'>↩ Restore the version from before this change</a></p>")
+                parts.append("<hr>")
+        if not parts:
+            parts.append("<p>No changes recorded for this card yet. Talk about it with <b>F</b>, edit it, or apply a rule, and its history shows up here.</p>")
         self.view.setHtml("".join(parts))
 
     def _clicked(self, url) -> None:
         action, _, rest = url.toString().partition(":")
+        if action == "restore" and rest.isdigit():
+            self._restore(self.reply["changes"][int(rest)]["restore"])
+            return
         if action != "use":
             return
         v_index, c_index = (int(x) for x in rest.split(":"))
         item = self.reply["versions"][v_index]["cards"][c_index]
         call("use-version", {"note_id": self.note.id, "card": item["card"]}, self._used)
+
+    def _restore(self, fields: dict) -> None:
+        sides = _sides(self.note)
+        if not sides:
+            showWarning(UNSUPPORTED)
+            return
+        _save(self.note.id, {sides[0]: fields["question"], sides[1]: fields["answer"]}, [], "Restored the earlier version. Edit → Undo brings the newer one back.")
+        self.accept()
 
     def _used(self, reply: dict) -> None:
         if "error" in reply:

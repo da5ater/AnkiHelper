@@ -64,8 +64,8 @@ def test_pushing_back_on_an_updated_card_rewords_the_rule_and_rechecks_updated_c
     assert jobs.all_jobs()[0]["status"] == jobs.DONE
 
     def agent(name, text, timeout=600, images=None):
-        if "Reword the rule" in text:
-            return "Keep examples minimal, except for commands: show the full command."
+        if "Reword the rules" in text:
+            return json.dumps({"rules": ["Keep examples minimal, except for commands: show the full command."]})
         return json.dumps({"question": "Q?", "answer": "A full command example", "bloom": "apply"})
 
     monkeypatch.setattr(agents, "ask", agent)
@@ -73,6 +73,7 @@ def test_pushing_back_on_an_updated_card_rewords_the_rule_and_rechecks_updated_c
 
     assert reply["rule_updated"].startswith("Keep examples minimal, except for commands")
     [updated] = jobs.all_jobs()
+    assert jobs.rules_of(updated) == ["Keep examples minimal, except for commands: show the full command."]
     assert updated["version"] == 2 and updated["status"] == jobs.RUNNING
     assert updated["queue"][updated["next"]:] == [2, 4], "cards changed under the old wording are rechecked"
     assert "except for commands" in config.personal_rules() and "- Keep examples minimal.\n" not in config.personal_rules() + "\n"
@@ -109,3 +110,34 @@ def test_a_successful_fix_now_clears_its_saved_request():
     bridge.flag(6, "ask why")
     bridge.unflag_note(5)
     assert [i["note_id"] for i in bridge.list_flagged()] == [6]
+
+
+def test_several_rules_are_applied_in_one_pass(fake_anki, monkeypatch):
+    anki = make_cards(fake_anki, 3)
+    seen = []
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or changes_every_other_card(name, text))
+    cfg = Config(anki_url=fake_anki.url)
+    job = jobs.start(cfg, anki, ["Keep examples minimal.", "Ask why, not what."], "all")
+    jobs.run_batch(cfg, anki)
+    assert "- Keep examples minimal.\n- Ask why, not what." in seen[0]
+    assert jobs.rules_of(job) == ["Keep examples minimal.", "Ask why, not what."]
+
+
+def test_a_conversation_is_kept_as_learning_material(monkeypatch):
+    from ankihelper import learning
+
+    entry = inbox.Entry.new("what is a controller", "", "ruby::rails")
+    from ankihelper import notes
+    from ankihelper.batch import Card
+
+    notes.record(9, entry, Card(entry.id, "What is a controller?", "A class.", [], False))
+    monkeypatch.setattr(agents, "ask", lambda *a, **k: json.dumps({"reply": "Here is a smaller one.", "card": {"question": "Write a minimal Rails controller with an index action.", "answer": "```ruby\nclass HomeController < ApplicationController\n  def index; end\nend\n```"}}))
+    messages = [{"role": "learner", "text": "make me write a controller instead"}, {"role": "agent", "text": "Here is a full one"}, {"role": "learner", "text": "too much, shorten the controller part"}]
+
+    turn = bridge.chat(Config(), 9, "<p>What is a controller?</p>", "<p>A class.</p>", messages, None)
+    assert turn["reply"] == "Here is a smaller one." and "HomeController" in turn["back"]
+
+    bridge.finish_chat(Config(), 9, {"question": "<p>What is a controller?</p>", "answer": "<p>A class.</p>"}, turn["card"], messages, [])
+    [event] = learning.pending()
+    assert event["kind"] == "conversation" and "too much, shorten the controller part" in event["transcript"][-1]
+    assert notes.find(9)["card"]["question"].startswith("Write a minimal Rails controller")

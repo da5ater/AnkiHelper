@@ -15,7 +15,6 @@ from pathlib import Path
 
 from anki import hooks
 from aqt import gui_hooks, mw
-from aqt.operations.card import set_card_flag
 from aqt.operations.note import update_note
 from aqt.qt import (
     QAction,
@@ -34,7 +33,6 @@ from aqt.utils import showWarning, tooltip
 
 ADDON_DIR = Path(__file__).parent
 CLOZE = 1
-RED_FLAG = 1
 _writing: set[int] = set()
 """Notes AnkiHelper is saving right now, so the edit watcher does not report them as the learner's edits."""
 
@@ -162,80 +160,119 @@ def _save(note_id: int, fields: dict[str, str], add_tags: list[str], message: st
 
 
 class FixDialog(QDialog):
-    """Say what is wrong with the card. AnkiHelper fixes it right away, and the request is also saved so
-    the next batch fixes it if the immediate fix fails or Anki closes first."""
+    """Talk with AnkiHelper about the card in front of you: ask why, disagree, try other examples. The card
+    preview updates as you go; OK saves the latest version and keeps the conversation so AnkiHelper learns
+    what you meant, not just what changed."""
 
     def __init__(self, note):
         super().__init__(mw)
         self.note = note
         self.cancelled = False
-        self.setWindowTitle("AnkiHelper")
-        self.setMinimumWidth(520)
+        self.sides = _sides(note)
+        self.before = {"question": note[self.sides[0]], "answer": note[self.sides[1]]} if self.sides else {}
+        self.messages: list[dict] = []
+        self.draft: dict | None = None
+        self.draft_html: tuple[str, str] | None = None
+        self.setWindowTitle("AnkiHelper · this card")
+        self.resize(680, 720)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("What should change in this card?"))
+        self.card_label = QLabel("<b>The card</b>")
+        layout.addWidget(self.card_label)
+        self.preview = QTextBrowser()
+        self.preview.setSearchPaths([mw.col.media.dir()])
+        layout.addWidget(self.preview, 3)
+        layout.addWidget(QLabel("<b>Conversation</b>"))
+        self.chat = QTextBrowser()
+        layout.addWidget(self.chat, 2)
+        row = QHBoxLayout()
         self.text = QLineEdit()
-        self.text.setPlaceholderText("e.g. too long · ask why instead · add bold signaling and why for each")
-        self.text.returnPressed.connect(self.fix)
-        layout.addWidget(self.text)
+        self.text.setPlaceholderText("Ask or tell it anything: why this example? · make me write it instead · shorter")
+        self.text.returnPressed.connect(self.send)
+        self.send_button = QPushButton("Send")
+        self.send_button.clicked.connect(self.send)
+        row.addWidget(self.text, 1)
+        row.addWidget(self.send_button)
+        layout.addLayout(row)
         self.status = QLabel("")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
-        self.go = QPushButton("Fix")
-        self.go.setDefault(True)
-        self.go.clicked.connect(self.fix)
-        cancel = QPushButton("Close")
-        cancel.clicked.connect(self.reject)
+        close = QPushButton("Close")
+        close.setToolTip("Leave the card as it was")
+        close.clicked.connect(self.reject)
+        self.ok = QPushButton("OK, keep this card")
+        self.ok.setToolTip("Save the latest version and let AnkiHelper learn from this conversation")
+        self.ok.clicked.connect(self.finish)
         buttons.addStretch()
-        buttons.addWidget(cancel)
-        buttons.addWidget(self.go)
+        buttons.addWidget(close)
+        buttons.addWidget(self.ok)
         layout.addLayout(buttons)
+        self._show_card()
+        if not self.sides:
+            self.status.setText(UNSUPPORTED)
+            self.send_button.setEnabled(False)
+            self.ok.setEnabled(False)
         self.text.setFocus()
 
-    def fix(self) -> None:
-        feedback = self.text.text().strip()
-        sides = _sides(self.note)
-        if not feedback:
-            self.status.setText("Say what should change first.")
+    def _show_card(self) -> None:
+        front, back = self.draft_html or (self.before.get("question", ""), self.before.get("answer", ""))
+        self.card_label.setText("<b>New version</b> (not saved until you press OK)" if self.draft_html else "<b>The card</b>")
+        self.preview.setHtml(f"{front}<hr>{back}")
+
+    def _show_chat(self) -> None:
+        lines = []
+        for m in self.messages:
+            who = "You" if m["role"] == "learner" else "AnkiHelper"
+            text = m["text"].replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br>")
+            lines.append(f"<p><b>{who}:</b> {text}</p>")
+        self.chat.setHtml("".join(lines))
+        self.chat.verticalScrollBar().setValue(self.chat.verticalScrollBar().maximum())
+
+    def send(self) -> None:
+        said = self.text.text().strip()
+        if not said or not self.sides or not self.send_button.isEnabled():
             return
-        if not sides:
-            self.status.setText(UNSUPPORTED)
-            return
-        self.go.setEnabled(False)
-        self.status.setText("⏳ AnkiHelper is rewriting this card… You can close this; if it doesn't finish, the next batch fixes it.")
-        call("flag", {"note_id": self.note.id, "feedback": feedback})
+        self.text.clear()
+        self.messages.append({"role": "learner", "text": said})
+        self._show_chat()
+        self.send_button.setEnabled(False)
+        self.status.setText("⏳ AnkiHelper is thinking…")
         payload = {
             "note_id": self.note.id,
-            "question_html": self.note[sides[0]],
-            "answer_html": self.note[sides[1]],
-            "feedback": feedback,
-            "tags": list(self.note.tags),
+            "question_html": self.before["question"],
+            "answer_html": self.before["answer"],
+            "messages": self.messages,
+            "draft": self.draft,
         }
-        call("fix", payload, self._fixed)
+        call("chat", payload, self._answered)
 
     def reject(self) -> None:
         self.cancelled = True
         super().reject()
 
-    def _fixed(self, reply: dict) -> None:
-        if "error" in reply:
-            card = mw.reviewer.card
-            if card and card.nid == self.note.id:
-                set_card_flag(parent=mw, card_ids=[card.id], flag=RED_FLAG).run_in_background()
-            if not self.cancelled:
-                self.status.setText(f"⚠ {reply['error']}<br>The card is flagged red; the next batch fixes it.")
+    def _answered(self, reply: dict) -> None:
+        if self.cancelled:
             return
-        call("unflag", {"note_id": self.note.id})
-        sides = _sides(self.note)
-        _save(
-            self.note.id,
-            {sides[0]: reply["front"], sides[1]: reply["back"]},
-            reply.get("add_tags", []),
-            "AnkiHelper rewrote the card. Edit → Undo brings the old one back."
-            + (f"<br>Rule updated from your reasoning: {reply['rule_updated']}" if reply.get("rule_updated") else ""),
-        )
-        if not self.cancelled:
-            self.accept()
+        self.send_button.setEnabled(True)
+        if "error" in reply:
+            self.status.setText(f"⚠ {reply['error']}")
+            return
+        self.status.setText("")
+        self.messages.append({"role": "agent", "text": reply["reply"]})
+        if reply.get("card"):
+            self.draft = reply["card"]
+            self.draft_html = (reply["front"], reply["back"])
+            self._show_card()
+        self._show_chat()
+        self.text.setFocus()
+
+    def finish(self) -> None:
+        if self.draft_html:
+            _save(self.note.id, {self.sides[0]: self.draft_html[0], self.sides[1]: self.draft_html[1]}, ["ah::fixed"], "Saved the new version. Edit → Undo brings the old one back.")
+        if self.messages:
+            payload = {"note_id": self.note.id, "before": self.before, "draft": self.draft, "messages": self.messages, "tags": list(self.note.tags)}
+            call("chat-done", payload, lambda r: tooltip(f"Rule updated from your reasoning: {r['rule_updated']}") if r.get("rule_updated") else None)
+        self.accept()
 
 
 def fix_card() -> None:

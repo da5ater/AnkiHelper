@@ -92,6 +92,14 @@ def cmd_anki(args) -> int:
                     start_new_session=True,
                 )
             reply = {"ok": True}
+        elif args.action == "chat":
+            reply = bridge.chat(
+                cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["messages"], request.get("draft")
+            )
+        elif args.action == "chat-done":
+            reply = bridge.finish_chat(
+                cfg, int(request["note_id"]), request["before"], request.get("draft"), request["messages"], request.get("tags") or []
+            )
         elif args.action == "unflag":
             bridge.unflag_note(int(request["note_id"]))
             reply = {"ok": True}
@@ -169,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="print the setup checklist").set_defaults(func=cmd_doctor)
     anki_parser = sub.add_parser("anki", help="requests from the AnkiHelper add-on inside Anki (JSON on stdin)")
     anki_parser.add_argument(
-        "action", choices=["fix", "flag", "event", "written", "history", "use-version", "optimize", "work", "jobs", "unflag"]
+        "action", choices=["fix", "flag", "event", "written", "history", "use-version", "optimize", "work", "jobs", "unflag", "chat", "chat-done"]
     )
     anki_parser.set_defaults(func=cmd_anki)
     sub.add_parser("learn", help="suggest rules from your recent edits and deletions in Anki").set_defaults(func=cmd_learn)

@@ -64,12 +64,17 @@ def query_for(cfg: Config, scope: str) -> str:
     return query or f'"deck:{cfg.root_deck}"'
 
 
-def start(cfg: Config, anki, rule: str, scope: str) -> dict:
-    """Queue every matching note for the rule. Nothing changes in Anki until the worker runs."""
+def rules_of(job: dict) -> list[str]:
+    return job.get("rules") or [job["rule"]]
+
+
+def start(cfg: Config, anki, rules: list[str] | str, scope: str) -> dict:
+    """Queue every matching note for the rules. Nothing changes in Anki until the worker runs."""
+    rules = [rules] if isinstance(rules, str) else [r for r in rules if r.strip()]
     note_ids = sorted(anki.invoke("findNotes", query=query_for(cfg, scope)))
     job = {
         "id": uuid.uuid4().hex[:8],
-        "rule": rule,
+        "rules": rules,
         "version": 1,
         "scope": scope,
         "status": RUNNING if note_ids else DONE,
@@ -115,7 +120,7 @@ def _backup(job: dict, note_id: int, fields: dict) -> None:
 def _batch_prompt(cfg: Config, job: dict, cards: list[dict]) -> str:
     return agents.prompt(
         "apply_rule",
-        rule=job["rule"],
+        rule="\n".join(f"- {r}" for r in rules_of(job)),
         language=cfg.language,
         rules=config.personal_rules() or "(none yet)",
         cards="\n".join(json.dumps(c, ensure_ascii=False) for c in cards),
@@ -194,30 +199,41 @@ def job_for_note(tags: list[str]) -> dict | None:
     return found[-1] if found else None
 
 
-def refine(cfg: Config, job: dict, card_before: dict, card_after_job: dict, feedback: str) -> str | None:
-    """The learner pushed back on a card this job changed: reword the rule from their reasoning.
+def refine(cfg: Config, job: dict, card_before: dict, card_after_job: dict, feedback: str) -> list[str] | None:
+    """The learner pushed back on a card this job changed: reword the job's rules from their reasoning.
 
-    Returns the new rule, or None when the feedback was about that card only."""
+    Returns the new rules, or None when the feedback was about that card only."""
+    old = rules_of(job)
     text = agents.prompt(
         "refine_rule",
-        rule=job["rule"],
+        rule="\n".join(f"- {r}" for r in old),
         before=json.dumps(card_before, ensure_ascii=False),
         after=json.dumps(card_after_job, ensure_ascii=False),
         feedback=feedback,
     )
     reply = agents.ask(cfg.agent, text, timeout=300).strip()
-    new_rule = reply.splitlines()[-1].strip().strip('"') if reply else ""
-    if not new_rule or new_rule.upper() == "SAME" or new_rule == job["rule"]:
+    if not reply or reply.upper().endswith("SAME"):
         return None
-    _replace_rule(job["rule"], new_rule)
+    try:
+        new = [str(r).strip() for r in agents.extract_json(reply).get("rules") or [] if str(r).strip()]
+    except agents.AgentError:
+        new = [reply.splitlines()[-1].strip().strip('"')]
+    if not new or new == old:
+        return None
+    for before, after in zip(old, new):
+        if before != after:
+            _replace_rule(before, after)
+    for extra in new[len(old) :]:
+        review.save_rule(extra)
 
     def requeue(j: dict) -> None:
-        j["rule"], j["version"] = new_rule, j["version"] + 1
+        j["rules"], j["version"] = new, j["version"] + 1
+        j.pop("rule", None)
         j["queue"] = j["queue"] + [n for n in j["changed"] if n not in j["queue"][j["next"] :]]
         j["status"] = RUNNING
 
     _update(job["id"], requeue)
-    return new_rule
+    return new
 
 
 def _replace_rule(old: str, new: str) -> None:

@@ -73,9 +73,62 @@ def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, fee
     job = jobs.job_for_note(tags or [])
     if job:
         before = _before_job(note_id, job["id"])
-        new_rule = jobs.refine(cfg, job, before or current, current, feedback)
-        if new_rule:
-            reply["rule_updated"] = new_rule
+        new_rules = jobs.refine(cfg, job, before or current, current, feedback)
+        if new_rules:
+            reply["rule_updated"] = "; ".join(new_rules)
+    return reply
+
+
+def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messages: list[dict], draft: dict | None) -> dict:
+    """One turn of the learner's conversation about a card: an answer, and maybe a new draft of the card."""
+    record = notes.find(note_id)
+    entry = Entry(**record["entry"]) if record else None
+    current = {"question": text_of(question_html), "answer": text_of(answer_html)}
+    text = agents.prompt(
+        "chat_card",
+        language=(entry.language if entry and entry.language else cfg.language),
+        rules=config.personal_rules() or "(none yet)",
+        original=json.dumps({"question": entry.question, "answer": entry.answer} if entry else {}, ensure_ascii=False),
+        card=json.dumps(current, ensure_ascii=False),
+        draft=json.dumps(draft or {}, ensure_ascii=False),
+        messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-30:]),
+    )
+    reply = agents.extract_json(agents.ask(cfg.agent, text))
+    answer = {"reply": str(reply.get("reply") or "").strip() or "OK."}
+    raw = reply.get("card")
+    if isinstance(raw, dict) and raw.get("question") and raw.get("answer"):
+        card = Card.parse({**(record["card"] if record else {}), **raw, "source_id": entry.id if entry else "", "changed": True})
+        answer["card"] = {"question": card.question, "answer": card.answer, "bloom": card.bloom}
+        answer["front"] = render.question_html(card.question) + _images_in(question_html)
+        answer["back"] = render.to_html(card.answer) + _images_in(answer_html)
+    return answer
+
+
+def finish_chat(cfg: Config, note_id: int, before_html: dict, draft: dict | None, messages: list[dict], tags: list[str]) -> dict:
+    """The learner pressed OK: remember the card and the whole conversation, which is what learning reads."""
+    before = {"question": text_of(before_html["question"]), "answer": text_of(before_html["answer"])}
+    record = notes.find(note_id)
+    if record and draft:
+        entry = Entry(**record["entry"])
+        notes.record(note_id, entry, Card.parse({**record["card"], **draft, "source_id": entry.id, "changed": True}))
+    learning.log(
+        {
+            "kind": "conversation",
+            "note_id": note_id,
+            "tags": tags,
+            "before": before,
+            "after": draft or before,
+            "transcript": [f"{m['role']}: {m['text']}" for m in messages[-30:]],
+        }
+    )
+    unflag_note(note_id)
+    reply: dict = {"ok": True, "add_tags": [FIXED_TAG] if draft else []}
+    job = jobs.job_for_note(tags)
+    if job and draft:
+        said = " / ".join(m["text"] for m in messages if m["role"] == "learner")
+        new_rules = jobs.refine(cfg, job, _before_job(note_id, job["id"]) or before, before, said)
+        if new_rules:
+            reply["rule_updated"] = "; ".join(new_rules)
     return reply
 
 

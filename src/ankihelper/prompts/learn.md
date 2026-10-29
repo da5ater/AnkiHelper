@@ -1,6 +1,8 @@
-A learner uses an AI to turn their notes into Anki flashcards. Below is what they did to cards while studying in Anki: cards they edited by hand (before and after), cards they deleted, and cards they asked the AI to fix (with what they said).
+A learner uses an AI to turn their notes into Anki flashcards. Below is what they did to cards while studying in Anki: cards they edited by hand (before and after), cards they deleted, cards they asked the AI to fix, and whole conversations they had with the AI about a card (with the card before and after).
 
 Find PATTERNS that say how they want their cards, and turn each into one short general rule for writing future cards.
+
+Look for MEANING, not surface measurements. "Answers got 20 characters shorter" is weak; "they replace abstract examples with everyday ones from their own work", "they want to write the code themselves, but only a few lines", "they ask why until the card explains the reason, so cards should state the why" are the kind of preferences that matter. Conversations are the richest evidence: read what they objected to, what they asked about, and what they finally accepted.
 
 - A pattern needs at least 3 events behind it. One-off changes about a single card's facts are not patterns.
 - Deletions matter: if they keep deleting a kind of card (a group such as "optimized", a Bloom level such as "ah::bloom::create", a strategy such as "cloze", very long answers, trivia about one topic), the rule should say not to write that kind, or to write it differently.
@@ -12,7 +14,7 @@ Find PATTERNS that say how they want their cards, and turn each into one short g
 The learner's current rules:
 {rules}
 
-Events (JSON lines; "kind" is edit, delete, fix or flag; tags starting with ah:: show how AnkiHelper made the card: ah::group::<group>, ah::bloom::<level>):
+Events (JSON lines; "kind" is edit, delete, fix, flag or conversation; tags starting with ah:: show how AnkiHelper made the card: ah::group::<group>, ah::bloom::<level>):
 {events}
 
 Reply with ONLY a JSON object:

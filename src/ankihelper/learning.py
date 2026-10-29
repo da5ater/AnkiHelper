@@ -79,6 +79,8 @@ def _describe(event: dict) -> dict:
     for key in ("question", "answer"):
         if key in event:
             keep[key] = _short(str(event[key]))
+    if isinstance(event.get("transcript"), list):
+        keep["transcript"] = [_short(str(line), 400) for line in event["transcript"]]
     if isinstance(event.get("sample"), list):
         keep["sample"] = [_describe(e) for e in event["sample"]]
     return keep

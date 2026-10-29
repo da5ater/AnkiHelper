@@ -1,11 +1,14 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
+    QDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -104,16 +107,41 @@ class SettingsPage(Page):
             "card in Anki (F), the rule is reworded and the cards already updated are rechecked.",
             "muted", wrap=True,
         ))
+        self.rule_picker = QDialog(self)
+        self.rule_picker.setWindowTitle("Choose rules")
+        self.rule_picker.resize(560, 460)
+        picker = QVBoxLayout(self.rule_picker)
+        picker.addWidget(label("Tick the rules to apply to your existing cards, or to delete.", "muted", wrap=True))
+        self.rule_list = QListWidget()
+        self.rule_list.setObjectName("ruleList")
+        self.rule_list.setWordWrap(True)
+        self.rule_list.itemChanged.connect(lambda _item: self._update_picker_button())
+        picker.addWidget(self.rule_list, 1)
+        list_buttons = QHBoxLayout()
+        select_all = QPushButton("Select all")
+        select_all.clicked.connect(lambda: self._check_all(True))
+        clear = QPushButton("Select none")
+        clear.clicked.connect(lambda: self._check_all(False))
+        delete = QPushButton("🗑 Delete ticked")
+        delete.clicked.connect(self._delete_checked)
+        done = QPushButton("Done")
+        done.setObjectName("primary")
+        done.clicked.connect(self.rule_picker.accept)
+        for button in (select_all, clear, delete):
+            list_buttons.addWidget(button)
+        list_buttons.addStretch()
+        list_buttons.addWidget(done)
+        picker.addLayout(list_buttons)
+        self.picker_button = QPushButton("Choose rules ▾")
+        self.picker_button.setToolTip("Open the list of your rules to tick, untick or delete them")
+        self.picker_button.clicked.connect(self.rule_picker.exec)
         start_row = QHBoxLayout()
-        self.job_rule = QComboBox()
-        self.job_rule.setEditable(True)
-        self.job_rule.lineEdit().setPlaceholderText("Pick one of your rules, or type one")
         self.job_scope = QComboBox()
         for key, (title, _query) in jobs.SCOPES.items():
             self.job_scope.addItem(title, key)
         self.job_start = QPushButton("▶ Apply to existing cards")
         self.job_start.clicked.connect(self._start_job)
-        start_row.addWidget(self.job_rule, 3)
+        start_row.addWidget(self.picker_button, 2)
         start_row.addWidget(self.job_scope, 2)
         start_row.addWidget(self.job_start)
         layout.addLayout(start_row)
@@ -199,7 +227,7 @@ class SettingsPage(Page):
         learning.accept(suggestion_id, rule)
         self.reload_rules()
         self.prefill_rule(rule)
-        self.job_status.setText("Rule added. Apply it to your existing cards with ▶ below, or leave it for new cards only.")
+        self.job_status.setText("Rule added and ticked below. Apply it to your existing cards with ▶, or leave it for new cards only.")
 
     def _set_batch_size(self, value: int) -> None:
         self.cfg.rule_batch_size = value
@@ -207,15 +235,53 @@ class SettingsPage(Page):
 
     def prefill_rule(self, rule: str) -> None:
         self.reload_jobs()
-        self.job_rule.setCurrentText(rule)
+        for i in range(self.rule_list.count()):
+            item = self.rule_list.item(i)
+            if item.text() == rule:
+                item.setCheckState(Qt.CheckState.Checked)
+
+    def _rules(self) -> list[str]:
+        return [line.lstrip("- ").strip() for line in config.personal_rules().splitlines() if line.strip()]
+
+    def _checked(self) -> list[str]:
+        return [
+            self.rule_list.item(i).text()
+            for i in range(self.rule_list.count())
+            if self.rule_list.item(i).checkState() == Qt.CheckState.Checked
+        ]
+
+    def _update_picker_button(self) -> None:
+        ticked, total = len(self._checked()), len(self._rules())
+        self.picker_button.setText(f"Rules: {ticked} of {total} ticked ▾" if total else "No rules yet ▾")
+
+    def _check_all(self, on: bool) -> None:
+        for i in range(self.rule_list.count()):
+            self.rule_list.item(i).setCheckState(Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
+
+    def _delete_checked(self) -> None:
+        doomed = set(self._checked())
+        if not doomed:
+            self.job_status.setText("Tick the rules to delete first.")
+            return
+        keep = [r for r in self._rules() if r not in doomed]
+        config.rules_path().write_text("".join(f"- {r}\n" for r in keep))
+        self.reload_rules()
+        self.reload_jobs()
+        self.job_status.setText(f"Deleted {len(doomed)} rule(s). Cards already changed by them stay as they are (use Undo all on a job to revert).")
 
     def reload_jobs(self) -> None:
-        rules = [line.lstrip("- ").strip() for line in config.personal_rules().splitlines() if line.strip()]
-        current = self.job_rule.currentText()
-        self.job_rule.clear()
-        self.job_rule.addItems(rules)
-        if current:
-            self.job_rule.setCurrentText(current)
+        checked = set(self._checked()) if self.rule_list.count() else set()
+        self.rule_list.clear()
+        for rule in self._rules():
+            item = QListWidgetItem(rule)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if rule in checked else Qt.CheckState.Unchecked)
+            self.rule_list.addItem(item)
+        if not self.rule_list.count():
+            placeholder = QListWidgetItem("No rules yet. Save one from Preview, add a suggestion above, or type rules in Personal rules.")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.rule_list.addItem(placeholder)
+        self._update_picker_button()
         while self.job_list.count():
             item = self.job_list.takeAt(0)
             if item.widget():
@@ -228,7 +294,7 @@ class SettingsPage(Page):
         row = QHBoxLayout(frame)
         row.setContentsMargins(14, 10, 10, 10)
         text = QVBoxLayout()
-        title = label(job["rule"], wrap=True)
+        title = label("\n".join(f"• {r}" for r in jobs.rules_of(job)), wrap=True)
         title.setStyleSheet("font-weight: 700;")
         text.addWidget(title)
         total, done = len(job["queue"]), min(job["next"], len(job["queue"]))
@@ -258,9 +324,9 @@ class SettingsPage(Page):
         from ..anki import AnkiConnect
         from .worker import run_async
 
-        rule, scope = self.job_rule.currentText().strip(), self.job_scope.currentData()
-        if not rule:
-            self.job_status.setText("Pick or type a rule first.")
+        rules, scope = self._checked(), self.job_scope.currentData()
+        if not rules:
+            self.job_status.setText("Tick at least one rule first (Choose rules ▾).")
             return
         self.job_start.setEnabled(False)
         self.job_status.setText("Finding the cards it could apply to…")
@@ -274,7 +340,7 @@ class SettingsPage(Page):
             self.job_start.setEnabled(True)
             self.job_status.setText(f"⚠ {error} (Anki needs to be open)")
 
-        run_async(lambda: jobs.start(self.cfg, AnkiConnect(self.cfg.anki_url), rule, scope), done, failed)
+        run_async(lambda: jobs.start(self.cfg, AnkiConnect(self.cfg.anki_url), rules, scope), done, failed)
 
     def _undo_job(self, job_id: str) -> None:
         from ..anki import AnkiConnect
@@ -311,6 +377,7 @@ class SettingsPage(Page):
     def _save_rules(self) -> None:
         text = self.rules.toPlainText().strip()
         config.rules_path().write_text(text + "\n" if text else "")
+        self.reload_jobs()
 
     def _set_text(self, key: str, value: str) -> None:
         value = value.strip()

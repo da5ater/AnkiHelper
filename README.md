@@ -85,6 +85,8 @@ ankihelper install-addon
 ankihelper setup
 ```
 
+The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://ankiweb.net/shared/info/1704420850). In Anki, Tools → Add-ons → Get Add-ons, code `1704420850`. Install it from there **or** with `ankihelper install-addon`, not both.
+
 `ankihelper install-addon` links the add-on into Anki's add-ons folder (`~/.local/share/Anki2/addons21/ankihelper` on Linux; it copies on Windows) and records where the `ankihelper` command lives, since Anki starts without your shell's PATH. Restart Anki afterwards; Tools → AnkiHelper confirms it loaded. Setup checks for it too, and tells you what else is missing; "Fix with agent" can install the shortcuts and create the deck or note type for you.
 
 ## Configuration

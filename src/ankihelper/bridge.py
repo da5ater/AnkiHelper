@@ -92,9 +92,13 @@ def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messag
         original=json.dumps({"question": entry.question, "answer": entry.answer} if entry else {}, ensure_ascii=False),
         card=json.dumps(current, ensure_ascii=False),
         draft=json.dumps(draft or {}, ensure_ascii=False),
-        messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-30:]),
+        messages="\n".join(
+            f"{m['role']}: {m['text']}" + (f" [attached pictures, read them: {', '.join(m['images'])}]" if m.get("images") else "")
+            for m in messages[-30:]
+        ),
     )
-    reply = agents.extract_json(agents.ask(cfg.agent, text))
+    pictures = [path for m in messages[-30:] for path in m.get("images") or []]
+    reply = agents.extract_json(agents.ask(cfg.agent, text, images=pictures))
     said = str(reply.get("reply") or "").strip() or "OK."
     answer: dict = {"reply": said, "reply_html": render.to_html(said)}
     raw = reply.get("card")

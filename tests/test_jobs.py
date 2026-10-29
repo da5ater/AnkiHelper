@@ -169,3 +169,19 @@ def test_a_reason_given_after_an_edit_reaches_learning():
     bridge.report({"events": [{"kind": "edit", "note_id": 3, "before": {"question": "q", "answer": "a"}, "after": {"question": "q", "answer": "b"}, "why": "learned it from ChatGPT"}]})
     [event] = learning.pending()
     assert learning._describe(event)["why"] == "learned it from ChatGPT"
+
+
+def test_pictures_in_the_chat_are_handed_to_the_agent_to_read(monkeypatch):
+    seen = {}
+
+    def agent(name, text, timeout=600, images=None):
+        seen["text"], seen["images"] = text, images
+        return json.dumps({"reply": "That diagram shows a load balancer."})
+
+    monkeypatch.setattr(agents, "ask", agent)
+    messages = [{"role": "learner", "text": "what is this?\nsecond line", "images": ["/media/ankihelper-chat-1.png"]}]
+    bridge.chat(Config(), 12, "<p>Q?</p>", "<p>A</p>", messages, None)
+
+    assert seen["images"] == ["/media/ankihelper-chat-1.png"]
+    assert "attached pictures, read them: /media/ankihelper-chat-1.png" in seen["text"]
+    assert "second line" in seen["text"]

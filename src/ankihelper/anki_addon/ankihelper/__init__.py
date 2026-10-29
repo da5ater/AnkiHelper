@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from html import unescape
 from pathlib import Path
 
@@ -25,7 +26,13 @@ from aqt.qt import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QBuffer,
+    QImage,
+    QIODevice,
     QTextBrowser,
+    QTextDocument,
+    QTextEdit,
+    QUrl,
     QVBoxLayout,
     Qt,
 )
@@ -181,6 +188,53 @@ a { color: #f472b6; font-weight: bold; }
 """
 
 
+class ChatInput(QTextEdit):
+    """Where the learner writes: several lines, and pictures pasted or dropped in (saved to Anki's media
+    folder so the agent can read them and the chat can show them). Ctrl+Enter sends."""
+
+    def __init__(self, on_send):
+        super().__init__()
+        self.on_send = on_send
+        self.images: list[str] = []
+        self.setAcceptRichText(False)
+        self.setPlaceholderText("Write anything, over several lines; paste or drop pictures. Ctrl+Enter sends.")
+        self.setMinimumHeight(70)
+        self.setMaximumHeight(140)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.on_send()
+            return
+        super().keyPressEvent(event)
+
+    def canInsertFromMimeData(self, source) -> bool:
+        return source.hasImage() or any(u.isLocalFile() for u in source.urls()) or super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source) -> None:
+        image = QImage(source.imageData()) if source.hasImage() else QImage()
+        if image.isNull():
+            for url in source.urls():
+                if url.isLocalFile() and QImage(url.toLocalFile()).isNull() is False:
+                    image = QImage(url.toLocalFile())
+                    break
+        if image.isNull():
+            super().insertFromMimeData(source)
+            return
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        name = mw.col.media.write_data(f"ankihelper-chat-{int(time.time() * 1000)}.png", bytes(buffer.data()))
+        self.images.append(name)
+        self.document().addResource(QTextDocument.ResourceType.ImageResource.value, QUrl(name), image)
+        self.insertHtml(f"<img src='{name}' width='120'> ")
+
+    def take(self) -> tuple[str, list[str]]:
+        text, images = self.toPlainText().replace("\ufffc", "").strip(), list(self.images)
+        self.clear()
+        self.images.clear()
+        return text, images
+
+
 class FixDialog(QDialog):
     """A tutor next to the card you are studying: learn what it means, ask anything, change the card, or turn
     what you learned into new cards. OK saves the latest version of the card and keeps the conversation so
@@ -210,6 +264,7 @@ class FixDialog(QDialog):
         self.preview.setMaximumHeight(220)
         layout.addWidget(self.preview)
         self.chat = QTextBrowser()
+        self.chat.setSearchPaths([mw.col.media.dir()])
         self.chat.document().setDefaultStyleSheet(CHAT_CSS)
         self.chat.setOpenLinks(False)
         self.chat.anchorClicked.connect(self._clicked)
@@ -223,11 +278,9 @@ class FixDialog(QDialog):
             self.quick_buttons.append(button)
         layout.addLayout(quick)
         row = QHBoxLayout()
-        self.text = QLineEdit()
-        self.text.setPlaceholderText("Ask anything: what does this mean? · why this example? · shorter · ask me about this")
-        self.text.returnPressed.connect(lambda: self.send(self.text.text()))
-        self.send_button = QPushButton("Send")
-        self.send_button.clicked.connect(lambda: self.send(self.text.text()))
+        self.text = ChatInput(self._send_written)
+        self.send_button = QPushButton("Send\nCtrl+Enter")
+        self.send_button.clicked.connect(self._send_written)
         row.addWidget(self.text, 1)
         row.addWidget(self.send_button)
         layout.addLayout(row)
@@ -277,13 +330,19 @@ class FixDialog(QDialog):
         for button in [self.send_button, *self.quick_buttons]:
             button.setEnabled(not busy)
 
-    def send(self, said: str) -> None:
-        said = said.strip()
-        if not said or not self.sides or not self.send_button.isEnabled():
+    def _send_written(self) -> None:
+        if not self.send_button.isEnabled():
             return
-        self.text.clear()
-        self.messages.append({"role": "learner", "text": said})
-        self._bubble("me", said.replace("&", "&amp;").replace("<", "&lt;"))
+        said, images = self.text.take()
+        self.send(said, images)
+
+    def send(self, said: str, images: list[str] | None = None) -> None:
+        said, images = said.strip(), images or []
+        if (not said and not images) or not self.sides or not self.send_button.isEnabled():
+            return
+        self.messages.append({"role": "learner", "text": said or "(see the picture)", "images": [os.path.join(mw.col.media.dir(), n) for n in images]})
+        pictures = "".join(f"<br><img src='{n}' width='220'>" for n in images)
+        self._bubble("me", "<p>" + _escape(said) + pictures + "</p>")
         self._set_busy(True)
         self._render_chat(thinking=True)
         payload = {

@@ -78,7 +78,7 @@ class SourceNode(QFrame):
         layout.setSpacing(6)
         header = QHBoxLayout()
         header.addWidget(pill("YOUR NOTE", theme.AMBER))
-        header.addWidget(pill(f"{cfg.root_deck}::{entry.topic}", theme.PINK))
+        header.addWidget(pill(batch.deck_for(cfg, entry.topic, entry.deck), theme.PINK))
         header.addStretch()
         self.redo_button = _small_button("↻ Redo all", "Regenerate every card with one piece of feedback")
         self.redo_button.setEnabled(not busy)

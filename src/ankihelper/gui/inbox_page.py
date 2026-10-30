@@ -3,7 +3,7 @@ import sys
 from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from .. import inbox
+from .. import batch, inbox
 from ..config import Config
 from . import theme
 from .common import Page, card, label, pill
@@ -99,7 +99,7 @@ class InboxPage(Page):
             answer = entry.answer if len(entry.answer) < 160 else entry.answer[:157] + "…"
             text.addWidget(label(answer, "muted", wrap=True))
         tags = QHBoxLayout()
-        tags.addWidget(pill(f"{self.cfg.root_deck}::{entry.topic}", theme.PINK))
+        tags.addWidget(pill(batch.deck_for(self.cfg, entry.topic, entry.deck), theme.PINK))
         shown = sum(image.get("mode", "show") == "show" for image in entry.images or [])
         if shown:
             tags.addWidget(pill(f"🖼 {shown}", theme.VIOLET))

@@ -195,3 +195,16 @@ def test_preview_can_remove_its_entry(window):
 
     assert inbox.read_all() == []
     assert main.stack.currentWidget() is main.inbox
+
+
+def test_an_optimized_card_shows_the_deck_it_will_really_go_to(window):
+    main = window.window_
+    entry = inbox.Entry.new("what is an enum", "", "agent::Software Development::Ruby & Rails::Rails")
+    entry.deck, entry.source_note = "agent::Software Development::Ruby & Rails::Rails", 5
+    inbox.append(entry)
+    main.go("inbox")
+    from PySide6.QtWidgets import QLabel
+
+    texts = [l.text() for l in main.inbox.findChildren(QLabel)]
+    assert "agent::Software Development::Ruby & Rails::Rails" in texts
+    assert not any(t.startswith("manual::agent") for t in texts)

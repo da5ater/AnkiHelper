@@ -167,3 +167,31 @@ def test_rules_can_be_ticked_deleted_and_applied_together(window, monkeypatch):
     settings._start_job()
     QTest.qWait(300)
     assert started == [(["Keep examples minimal.", "Ask why, not what."], "ankihelper")]
+
+
+def test_an_inbox_entry_can_be_removed_and_brought_back(window):
+    main = window.window_
+    entry = inbox.Entry.new("what is a gem", "a library", "ruby")
+    inbox.append(entry)
+    main.go("inbox")
+
+    main.inbox.remove(entry)
+    assert inbox.read_all() == []
+    assert main.inbox.undo_bar.isVisibleTo(main.inbox)
+
+    main.inbox.undo_remove()
+    assert [e.id for e in inbox.read_all()] == [entry.id]
+
+
+def test_preview_can_remove_its_entry(window):
+    from ankihelper import review
+
+    main = window.window_
+    entry = inbox.Entry.new("what is rack", "", "ruby")
+    inbox.append(entry)
+    main.go("review")
+    main.review.review = review.Review(entry)
+    main.review.remove_button.click()
+
+    assert inbox.read_all() == []
+    assert main.stack.currentWidget() is main.inbox

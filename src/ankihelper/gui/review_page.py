@@ -329,6 +329,7 @@ class ReviewPage(Page):
     changed = Signal()
     saved = Signal(str)
     rule_saved = Signal(str)
+    removed = Signal(object)
 
     def __init__(self, cfg: Config):
         super().__init__("Preview", "Your note and the cards it becomes. Accept, change or remove each one.", theme.VIOLET)
@@ -378,14 +379,14 @@ class ReviewPage(Page):
         self.log.hide()
         self.layout_.addWidget(self.log)
 
-        self.replace_box = QCheckBox("Replace the original card with the first accepted card (keeps its review history)")
+        self.replace_box = QCheckBox("Replace the original card")
+        self.replace_box.setToolTip("Rewrite the card you optimized with the first accepted card, keeping its review history, instead of adding next to it")
         self.replace_box.hide()
         self.layout_.addWidget(self.replace_box)
 
         bar = QHBoxLayout()
         self.status = label("", "muted", wrap=True)
         self.status.setOpenExternalLinks(True)
-        self.status.setMinimumWidth(90)
         self.rule_button = QPushButton("📌  Make rule")
         self.rule_button.setToolTip("Turn what you asked for into a rule every future card follows")
         self.rule_button.clicked.connect(self.suggest_rule)
@@ -399,7 +400,12 @@ class ReviewPage(Page):
         self.keep_button.setObjectName("primary")
         self.keep_button.setToolTip("Save only the accepted cards; the next batch imports exactly those")
         self.keep_button.clicked.connect(self.keep)
-        bar.addWidget(self.status, 1)
+        self.remove_button = QPushButton("🗑  Remove")
+        self.remove_button.setToolTip("Take this entry out of the inbox (Undo on the Inbox page brings it back)")
+        self.remove_button.clicked.connect(lambda: self.removed.emit(self.review.entry))
+        self.header.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.layout_.addWidget(self.status)
+        bar.addStretch()
         bar.addWidget(self.rule_button)
         bar.addWidget(self.accept_all_button)
         bar.addWidget(self.import_button)

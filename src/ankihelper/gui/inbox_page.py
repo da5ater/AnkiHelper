@@ -26,6 +26,18 @@ class InboxPage(Page):
         self.notice = label("", wrap=True)
         self.notice.hide()
         self.layout_.addWidget(self.notice)
+        self.removed: inbox.Entry | None = None
+        self.undo_bar = QWidget()
+        undo_row = QHBoxLayout(self.undo_bar)
+        undo_row.setContentsMargins(14, 8, 8, 8)
+        self.undo_label = label("", "muted", wrap=True)
+        undo = QPushButton("↶ Undo")
+        undo.clicked.connect(self.undo_remove)
+        undo_row.addWidget(self.undo_label, 1)
+        undo_row.addWidget(undo)
+        self.undo_bar.setStyleSheet(f"background: {theme.SURFACE_HI}; border-radius: 12px;")
+        self.undo_bar.hide()
+        self.layout_.addWidget(self.undo_bar)
 
         self.list = QVBoxLayout()
         self.list.setSpacing(10)
@@ -63,7 +75,7 @@ class InboxPage(Page):
         while self.list.count():
             item = self.list.takeAt(0)
             if item.widget():
-                item.widget().deleteLater()
+                item.widget().setParent(None)
         entries = inbox.read_all()
         self.run_button.setEnabled(bool(entries) and self.process is None)
         if not entries:
@@ -108,15 +120,33 @@ class InboxPage(Page):
         preview.setToolTip("See the cards the agent would make, and redo them with feedback")
         preview.clicked.connect(lambda: self.preview_requested.emit(entry))
         layout.addWidget(preview, 0, Qt.AlignmentFlag.AlignVCenter)
-        delete = QPushButton("✕")
-        delete.setObjectName("danger")
-        delete.setToolTip("Delete this card")
-        delete.clicked.connect(lambda: self._delete(entry.id))
-        layout.addWidget(delete, 0, Qt.AlignmentFlag.AlignTop)
+        remove = QPushButton("🗑  Remove")
+        remove.setToolTip("Take this entry out of the inbox; it won't be turned into cards (Undo brings it back)")
+        remove.clicked.connect(lambda: self.remove(entry))
+        layout.addWidget(remove, 0, Qt.AlignmentFlag.AlignVCenter)
         return frame
 
-    def _delete(self, entry_id: str) -> None:
-        inbox.remove(entry_id)
+    def remove(self, entry: inbox.Entry) -> None:
+        inbox.remove(entry.id)
+        self.removed = entry
+        title = entry.question or "the picture-only entry"
+        self.undo_label.setText(f"Removed “{title[:80]}” from the inbox.")
+        self.undo_bar.show()
+        QTimer.singleShot(10000, lambda: self._hide_undo(entry))
+        self.refresh()
+        self.changed.emit()
+
+    def _hide_undo(self, entry: inbox.Entry) -> None:
+        if self.removed is entry:
+            self.undo_bar.hide()
+            self.removed = None
+
+    def undo_remove(self) -> None:
+        if self.removed is None:
+            return
+        inbox.append(self.removed)
+        self.removed = None
+        self.undo_bar.hide()
         self.refresh()
         self.changed.emit()
 

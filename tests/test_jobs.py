@@ -185,3 +185,17 @@ def test_pictures_in_the_chat_are_handed_to_the_agent_to_read(monkeypatch):
     assert seen["images"] == ["/media/ankihelper-chat-1.png"]
     assert "attached pictures, read them: /media/ankihelper-chat-1.png" in seen["text"]
     assert "second line" in seen["text"]
+
+
+def test_progress_shows_time_left_and_the_latest_changes(fake_anki, monkeypatch):
+    anki = make_cards(fake_anki, 30)
+    monkeypatch.setattr(agents, "ask", changes_every_other_card)
+    cfg = Config(anki_url=fake_anki.url, rule_batch_size=10)
+    job = jobs.start(cfg, anki, "Keep examples minimal.", "all")
+    jobs.run_batch(cfg, anki)
+
+    [current] = jobs.all_jobs()
+    assert jobs.time_left(current, 10) == "about 3 min left", "2 batches left at one batch every 90 seconds"
+    recent = jobs.recent_changes(job["id"])
+    assert len(recent) == 5 and recent[0]["note_id"] == 10, "newest first"
+    assert "very long example" in list(recent[0]["fields"].values())[1]

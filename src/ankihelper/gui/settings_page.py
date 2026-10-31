@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -10,9 +10,11 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +43,10 @@ def tile(title: str, blurb: str, color: str) -> QPushButton:
         f"QPushButton#tile:hover {{ border-color: {theme.rgba(color, 0.6)}; }}"
     )
     return button
+
+
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
 
 class SettingsPage(Page):
@@ -162,6 +168,10 @@ class SettingsPage(Page):
         self.job_list.setSpacing(8)
         layout.addLayout(self.job_list)
         self.reload_jobs()
+        self._jobs_stamp = 0.0
+        self.jobs_timer = QTimer(self)
+        self.jobs_timer.timeout.connect(self._refresh_jobs_if_changed)
+        self.jobs_timer.start(4000)
 
         layout.addSpacing(8)
         layout.addWidget(label("Anki", "sectionTitle"))
@@ -291,20 +301,32 @@ class SettingsPage(Page):
 
     def _job_row(self, job: dict) -> QWidget:
         frame = card()
-        row = QHBoxLayout(frame)
-        row.setContentsMargins(14, 10, 10, 10)
-        text = QVBoxLayout()
-        title = label("\n".join(f"• {r}" for r in jobs.rules_of(job)), wrap=True)
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(14, 10, 10, 10)
+        outer.setSpacing(6)
+        rules = jobs.rules_of(job)
+        title = label(rules[0] + (f"   +{len(rules) - 1} more" if len(rules) > 1 else ""), wrap=True)
         title.setStyleSheet("font-weight: 700;")
-        text.addWidget(title)
+        title.setToolTip("\n".join(f"• {r}" for r in rules))
+        outer.addWidget(title)
         total, done = len(job["queue"]), min(job["next"], len(job["queue"]))
-        state = "undone" if job.get("undone") else job["status"]
-        text.addWidget(label(
-            f"{jobs.SCOPES[job['scope']][0]} · {done}/{total} checked · {len(job['changed'])} updated · {state}"
-            + (f" · rule v{job['version']}" if job["version"] > 1 else ""),
+        bar = QProgressBar()
+        bar.setRange(0, max(1, total))
+        bar.setValue(done)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(6)
+        outer.addWidget(bar)
+        state = "undone" if job.get("undone") else {"running": "running", "paused": "paused", "done": "done"}[job["status"]]
+        left = jobs.time_left(job, self.cfg.rule_batch_size)
+        outer.addWidget(label(
+            f"{done:,} / {total:,} checked · {len(job['changed']):,} changed · {state}"
+            + (f" · {left}" if left else "")
+            + (f" · rule v{job['version']}" if job["version"] > 1 else "")
+            + f" · {jobs.SCOPES[job['scope']][0]}",
             "faint",
         ))
-        row.addLayout(text, 1)
+        row = QHBoxLayout()
+        row.addStretch()
         if job["status"] == jobs.RUNNING:
             pause = QPushButton("⏸ Pause")
             pause.clicked.connect(lambda: (jobs.pause(job["id"]), self.reload_jobs()))
@@ -314,11 +336,78 @@ class SettingsPage(Page):
             go.clicked.connect(lambda: (jobs.resume(job["id"]), self.reload_jobs()))
             row.addWidget(go)
         if job["changed"] and not job.get("undone"):
+            see = QPushButton("👁 See changes")
+            see.setToolTip("The latest cards this rule changed, before and after")
+            see.clicked.connect(lambda: self._show_changes(job))
+            row.addWidget(see)
             undo = QPushButton("↶ Undo all")
             undo.setToolTip("Put back every card this rule changed")
             undo.clicked.connect(lambda: self._undo_job(job["id"]))
             row.addWidget(undo)
+        outer.addLayout(row)
         return frame
+
+    def _refresh_jobs_if_changed(self) -> None:
+        """Keep running jobs' progress current while Settings is on screen, without touching the rule list."""
+        if not self.isVisible():
+            return
+        path = jobs._path()
+        stamp = path.stat().st_mtime if path.exists() else 0
+        if stamp == self._jobs_stamp:
+            return
+        self._jobs_stamp = stamp
+        while self.job_list.count():
+            item = self.job_list.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        for job in reversed(jobs.all_jobs()):
+            self.job_list.addWidget(self._job_row(job))
+
+    def _show_changes(self, job: dict) -> None:
+        from ..anki import AnkiConnect
+        from .worker import run_async
+
+        recent = jobs.recent_changes(job["id"])
+        dialog = QDialog(self)
+        dialog.setWindowTitle("What this rule changed")
+        dialog.resize(720, 620)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(label(f"The latest {len(recent)} of {len(job['changed']):,} cards this rule changed, newest first.", "muted", wrap=True))
+        view = QTextBrowser()
+        view.setObjectName("preview")
+        view.setHtml("<p>Loading the cards from Anki…</p>")
+        layout.addWidget(view, 1)
+        buttons = QHBoxLayout()
+        browse = QPushButton("Open all in Anki")
+        browse.setToolTip("Show every card this rule changed in Anki's browser")
+        anki = AnkiConnect(self.cfg.anki_url)
+        browse.clicked.connect(lambda: run_async(lambda: anki.invoke("guiBrowse", query=f"tag:ah::rule::{job['id']}"), lambda _: None, lambda _: None))
+        close = QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        buttons.addWidget(browse)
+        buttons.addStretch()
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+
+        def load():
+            from .. import bridge
+
+            infos = anki.notes_info([c["note_id"] for c in recent]) if recent else []
+            parts = []
+            for change, info in zip(recent, infos):
+                before = list(change["fields"].values())
+                after = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"]) if info else []
+                q_now = bridge.text_of(after[0][1]["value"]) if after else "(deleted)"
+                a_now = bridge.text_of(after[1][1]["value"]) if len(after) > 1 else ""
+                parts.append(
+                    f"<p><b>{_escape(q_now)}</b><br><span style='color:{theme.FAINT}'>{change['time'].replace('T', ' ')}</span></p>"
+                    f"<p><span style='color:{theme.RED}'>Before:</span> {_escape(bridge.text_of(before[1])[:400])}</p>"
+                    f"<p><span style='color:{theme.GREEN}'>After:</span> {_escape(a_now[:400])}</p><hr>"
+                )
+            return "".join(parts) or "<p>No changed cards yet.</p>"
+
+        run_async(load, view.setHtml, lambda error: view.setHtml(f"<p>⚠ {error} (Anki needs to be open)</p>"))
+        dialog.exec()
 
     def _start_job(self) -> None:
         from ..anki import AnkiConnect

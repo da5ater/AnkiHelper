@@ -80,6 +80,8 @@ QComboBox QAbstractItemView {{
     background: {SURFACE_HI}; border: 1px solid {BORDER}; selection-background-color: {VIOLET}; padding: 4px;
 }}
 QTextBrowser#preview {{ background: {SURFACE}; border: 2px solid {BORDER}; border-radius: 14px; padding: 10px; }}
+QProgressBar {{ background: {SURFACE_HI}; border: none; border-radius: 3px; }}
+QProgressBar::chunk {{ background: {GREEN}; border-radius: 3px; }}
 QListWidget#ruleList {{ background: {SURFACE}; border: 2px solid {BORDER}; border-radius: 14px; padding: 8px; }}
 QListWidget#ruleList::item {{ padding: 8px 6px; border-bottom: 1px solid {SURFACE_HI}; }}
 QPlainTextEdit#log {{

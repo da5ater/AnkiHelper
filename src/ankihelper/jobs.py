@@ -15,6 +15,8 @@ from filelock import FileLock, Timeout
 from . import agents, config, review
 from .config import Config
 
+WORK_EVERY_SECONDS = 90
+"""How often the Anki add-on takes the next batch; used to estimate the time left."""
 MAX_BATCH = 100
 """Upper bound on the configured batch size: beyond this one agent call juggles too many cards."""
 RUNNING, PAUSED, DONE = "running", "paused", "done"
@@ -109,6 +111,23 @@ def _rewritable(anki, info: dict, models: dict) -> bool:
         [model] = anki.invoke("findModelsByName", modelNames=[name])
         models[name] = model.get("type") != 1
     return models[name]
+
+
+def recent_changes(job_id: str, limit: int = 30) -> list[dict]:
+    """The latest cards a job changed, newest first, with how they looked before."""
+    path = _backups_path()
+    if not path.exists():
+        return []
+    lines = [json.loads(raw) for raw in path.read_text().splitlines() if raw.strip()]
+    return [line for line in reversed(lines) if line["job"] == job_id][:limit]
+
+
+def time_left(job: dict, batch_size: int) -> str:
+    remaining = max(0, len(job["queue"]) - job["next"])
+    if not remaining or job["status"] != RUNNING:
+        return ""
+    minutes = -(-remaining // max(1, batch_size)) * WORK_EVERY_SECONDS / 60
+    return f"about {minutes / 60:.1f} h left" if minutes >= 90 else f"about {max(1, round(minutes))} min left"
 
 
 def backups_for(note_id: int) -> list[dict]:

@@ -1,32 +1,19 @@
-"""Learn the learner's taste from what they do in Anki: edits, deletions and fixes become suggested rules."""
+"""What the learner did to cards in Anki: conversations, hand edits and deletions, kept in one log.
+
+History reads it per card, and the moves nudge reads the conversations to spot requests the learner keeps
+making.
+"""
 
 import json
-import uuid
 from datetime import datetime
 
-from filelock import FileLock, Timeout
+from filelock import FileLock
 
-from . import agents, config
-from .config import Config
-
-LEARN_EVERY = 10
-"""Events to collect before the add-on asks for suggestions in the background."""
-MIN_EVENTS = 3
-"""A pattern needs at least this many events behind it."""
-MAX_EVENTS = 150
-"""Most recent events sent in one prompt; older pending ones are skipped so a backlog cannot grow forever."""
+from . import config
 
 
 def _events_path():
     return config.data_dir() / "events.jsonl"
-
-
-def _state_path():
-    return config.data_dir() / "learn.json"
-
-
-def _suggested_path():
-    return config.data_dir() / "suggested_rules.json"
 
 
 def _lock() -> FileLock:
@@ -44,107 +31,11 @@ def _events() -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
 
 
-def _seen() -> int:
-    path = _state_path()
-    return json.loads(path.read_text()).get("seen", 0) if path.exists() else 0
-
-
 def events_for(note_id: int) -> list[dict]:
     with _lock():
         return [e for e in _events() if e.get("note_id") == note_id]
 
 
-def pending() -> list[dict]:
+def events_since(index: int) -> list[dict]:
     with _lock():
-        return _events()[_seen() :]
-
-
-def due() -> bool:
-    return len(pending()) >= LEARN_EVERY
-
-
-def suggestions() -> list[dict]:
-    path = _suggested_path()
-    return json.loads(path.read_text()) if path.exists() else []
-
-
-def _save_suggestions(items: list[dict]) -> None:
-    _suggested_path().write_text(json.dumps(items, indent=2, ensure_ascii=False))
-
-
-def _short(text: str, limit: int = 300) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _describe(event: dict) -> dict:
-    keep = {k: v for k, v in event.items() if k not in ("before", "after", "question", "answer")}
-    for side in ("before", "after"):
-        if isinstance(event.get(side), dict):
-            keep[side] = {k: _short(str(v)) for k, v in event[side].items()}
-    for key in ("question", "answer"):
-        if key in event:
-            keep[key] = _short(str(event[key]))
-    if event.get("why"):
-        keep["why"] = _short(str(event["why"]), 400)
-    if isinstance(event.get("added_cards"), list):
-        keep["added_cards"] = [{k: _short(str(v)) for k, v in c.items()} for c in event["added_cards"]]
-    if isinstance(event.get("transcript"), list):
-        keep["transcript"] = [_short(str(line), 400) for line in event["transcript"]]
-    if isinstance(event.get("sample"), list):
-        keep["sample"] = [_describe(e) for e in event["sample"]]
-    return keep
-
-
-def learn(cfg: Config) -> list[dict]:
-    """Ask the agent for rules that explain the pending events; returns the new suggestions."""
-    running = FileLock(str(config.data_dir() / "learn-running.lock"))
-    try:
-        running.acquire(timeout=0)
-    except Timeout:
-        return []
-    try:
-        return _learn(cfg)
-    finally:
-        running.release()
-
-
-def _learn(cfg: Config) -> list[dict]:
-    with _lock():
-        events = _events()
-        start = _seen()
-    fresh = events[start:][-MAX_EVENTS:]
-    if len(fresh) < MIN_EVENTS:
-        return []
-    text = agents.prompt(
-        "learn",
-        rules=config.personal_rules() or "(none yet)",
-        events="\n".join(json.dumps(_describe(e), ensure_ascii=False) for e in fresh),
-    )
-    try:
-        reply = agents.extract_json(agents.ask(cfg.agent, text, timeout=300))
-    finally:
-        with _lock():
-            _state_path().write_text(json.dumps({"seen": len(events)}))
-    found = []
-    for raw in reply.get("rules") or []:
-        if isinstance(raw, dict) and str(raw.get("rule", "")).strip():
-            found.append(
-                {"id": uuid.uuid4().hex[:8], "rule": str(raw["rule"]).strip(), "evidence": str(raw.get("evidence", "")).strip()}
-            )
-    with _lock():
-        _save_suggestions(suggestions() + found)
-    return found
-
-
-def accept(suggestion_id: str, rule: str | None = None) -> None:
-    from . import review
-
-    items = suggestions()
-    for item in items:
-        if item["id"] == suggestion_id:
-            review.save_rule(rule or item["rule"])
-    _save_suggestions([i for i in items if i["id"] != suggestion_id])
-
-
-def dismiss(suggestion_id: str) -> None:
-    _save_suggestions([i for i in suggestions() if i["id"] != suggestion_id])
+        return _events()[index:]

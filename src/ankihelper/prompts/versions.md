@@ -11,9 +11,7 @@ Propose 3 or 4 alternative VERSIONS of the card below. Each version replaces jus
 - Atomic facts: one tiny card per fact, each with a context cue, for material that is a list.
 - Interview: phrased the way an interviewer would ask it, answered the way a strong candidate would in one or two lines.
 
-Every version still follows the card rules: focused, precise, consistent, tractable but effortful, short answers, context cues, no yes/no questions, no "list all N" questions unless asked, never invent facts. Write in {language}; never translate code or technical terms. Follow the learner's personal rules:
-
-{rules}
+Every version still follows the card rules: focused, precise, consistent, tractable but effortful, short answers, context cues, no yes/no questions, no "list all N" questions unless asked, never invent facts. Write in {language}; never translate code or technical terms.
 
 Use Bloom's taxonomy (remember, understand, apply, analyze, evaluate, create) to climb: at least two versions must work at a higher level than the card has now (for example turn a "which service" recall card into an apply scenario or an analyze "what breaks if" card). Label every card with its level in "bloom". Every card still needs one consistent answer.
 

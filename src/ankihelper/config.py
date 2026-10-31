@@ -30,15 +30,6 @@ def media_dir() -> Path:
     return path
 
 
-def rules_path() -> Path:
-    return data_dir() / "rules.md"
-
-
-def personal_rules() -> str:
-    path = rules_path()
-    return path.read_text().strip() if path.exists() else ""
-
-
 def log_dir() -> Path:
     path = data_dir() / "logs"
     path.mkdir(exist_ok=True)
@@ -53,10 +44,6 @@ class Config:
     root_deck: str = "manual"
     note_type: str = "Basic+"
     language: str = "English"
-    rule_batch_size: int = 50
-    """Cards per agent call when a rule is applied to existing cards."""
-    github_account: str = "da5ater"
-    """gh account that pushes branches and opens PRs for proposed rules."""
     last_topic: str = ""
     last_language: str = ""
     known_topics: list[str] = field(default_factory=list)

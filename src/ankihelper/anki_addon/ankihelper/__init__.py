@@ -27,6 +27,7 @@ from aqt.qt import (
     QMenu,
     QPushButton,
     QBuffer,
+    QComboBox,
     QImage,
     QIODevice,
     QTextBrowser,
@@ -170,12 +171,7 @@ def _save(note_id: int, fields: dict[str, str], add_tags: list[str], message: st
     update_note(parent=mw, note=note).success(saved).failure(failed).run_in_background()
 
 
-QUICK_ASKS = [
-    ("📖 Teach me this", "I don't really understand this card yet. Teach me the idea behind it, simply."),
-    ("💡 Give an example", "Give me a concrete example of this."),
-    ("✍ Add this to the card", "Add what we just discussed to this card, keeping it one focused card."),
-    ("➕ Make a card about this", "Make new cards about what you just taught me, so Anki asks me about it."),
-]
+TOP_MOVES = 3
 CHAT_CSS = """
 body { font-size: 14px; }
 table.me { margin: 6px 0 6px 80px; }
@@ -235,10 +231,85 @@ class ChatInput(QTextEdit):
         return text, images
 
 
+class MoveDraftDialog(QDialog):
+    """Name and instruction of a move AnkiHelper drafted from the conversation; the learner edits, then saves."""
+
+    def __init__(self, parent, draft: dict):
+        super().__init__(parent)
+        self.setWindowTitle("AnkiHelper · save as a move")
+        self.resize(560, 380)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("A move is a one-click button for something you keep doing to cards. Check it, then save."))
+        row = QHBoxLayout()
+        self.icon = QLineEdit(draft.get("icon", "★"))
+        self.icon.setMaximumWidth(50)
+        self.name = QLineEdit(draft.get("name", ""))
+        self.name.setPlaceholderText("Name")
+        self.mode = QComboBox()
+        self.mode.addItem("adds new cards", "add")
+        self.mode.addItem("changes the card", "change")
+        self.mode.setCurrentIndex(0 if draft.get("mode", "add") == "add" else 1)
+        row.addWidget(self.icon)
+        row.addWidget(self.name, 1)
+        row.addWidget(self.mode)
+        layout.addLayout(row)
+        self.instruction = QTextEdit()
+        self.instruction.setAcceptRichText(False)
+        self.instruction.setPlainText(draft.get("instruction", ""))
+        layout.addWidget(self.instruction, 1)
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Save move")
+        save.setDefault(True)
+        save.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+
+    def values(self) -> dict:
+        return {
+            "icon": self.icon.text().strip() or "★",
+            "name": self.name.text().strip() or "New move",
+            "mode": self.mode.currentData(),
+            "instruction": self.instruction.toPlainText().strip(),
+        }
+
+
+class TeachDialog(QDialog):
+    """The move's instruction now and with the learner's correction folded in; nothing changes without OK."""
+
+    def __init__(self, parent, name: str, old: str, new: str):
+        super().__init__(parent)
+        self.setWindowTitle(f"AnkiHelper · teach “{name}”")
+        self.resize(580, 400)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("<b>Now</b>"))
+        now = QLabel(_escape(old))
+        now.setWordWrap(True)
+        layout.addWidget(now)
+        layout.addWidget(QLabel("<b>After your correction</b> (edit it if you like)"))
+        self.text = QTextEdit()
+        self.text.setAcceptRichText(False)
+        self.text.setPlainText(new)
+        layout.addWidget(self.text, 1)
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Keep it as it is")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Teach the move")
+        save.setDefault(True)
+        save.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+
+
 class FixDialog(QDialog):
-    """A tutor next to the card you are studying: learn what it means, ask anything, change the card, or turn
-    what you learned into new cards. OK saves the latest version of the card and keeps the conversation so
-    AnkiHelper learns what you meant."""
+    """Work on the card you are studying: press one of your moves, or say what you want in your own words.
+    New versions show in the preview, new cards in the chat with Add. OK keeps the latest version; the
+    conversation is remembered so your moves can learn from it."""
 
     def __init__(self, note):
         super().__init__(mw)
@@ -254,7 +325,11 @@ class FixDialog(QDialog):
         self.added: list[dict] = []
         self.draft: dict | None = None
         self.draft_html: tuple[str, str] | None = None
-        self.setWindowTitle("AnkiHelper · study this card")
+        self.draft_move: str | None = None
+        self.moves: list[dict] = []
+        self.last_move: dict | None = None
+        self.corrections: list[dict] = []
+        self.setWindowTitle("AnkiHelper · this card")
         self.resize(760, 820)
         layout = QVBoxLayout(self)
         self.card_label = QLabel("<b>The card</b>")
@@ -269,14 +344,9 @@ class FixDialog(QDialog):
         self.chat.setOpenLinks(False)
         self.chat.anchorClicked.connect(self._clicked)
         layout.addWidget(self.chat, 1)
-        quick = QHBoxLayout()
-        self.quick_buttons = []
-        for title, text in QUICK_ASKS:
-            button = QPushButton(title)
-            button.clicked.connect(lambda _=False, text=text: self.send(text))
-            quick.addWidget(button)
-            self.quick_buttons.append(button)
-        layout.addLayout(quick)
+        self.move_row = QHBoxLayout()
+        self.move_buttons: list[QPushButton] = []
+        layout.addLayout(self.move_row)
         row = QHBoxLayout()
         self.text = ChatInput(self._send_written)
         self.send_button = QPushButton("Send\nCtrl+Enter")
@@ -288,23 +358,54 @@ class FixDialog(QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
+        self.save_move = QPushButton("⭐ Save as move")
+        self.save_move.setToolTip("Turn what you asked for in this conversation into a one-click move")
+        self.save_move.clicked.connect(self._save_as_move)
+        self.teach_button = QPushButton("🎓 Teach the move this")
+        self.teach_button.setToolTip("Fold your correction into the move you used, so it comes out right next time")
+        self.teach_button.clicked.connect(self._teach)
+        self.teach_button.hide()
         close = QPushButton("Close")
         close.setToolTip("Leave the card as it was (cards you already added stay)")
         close.clicked.connect(self.reject)
         self.ok = QPushButton("OK, keep this card")
-        self.ok.setToolTip("Save the latest version of the card and let AnkiHelper learn from this conversation")
+        self.ok.setToolTip("Save the latest version of the card")
         self.ok.clicked.connect(self.finish)
+        buttons.addWidget(self.save_move)
+        buttons.addWidget(self.teach_button)
         buttons.addStretch()
         buttons.addWidget(close)
         buttons.addWidget(self.ok)
         layout.addLayout(buttons)
         self._show_card()
-        self._bubble("ah", "Hi! Ask me anything about this card: what it means, why, an example. When something clicks, I can add it to the card or make new cards about it.")
+        self._bubble("ah", "Press one of your moves, or tell me what you want for this card. You can paste ideas, snippets or pictures.")
         if not self.sides:
             self.status.setText(UNSUPPORTED)
             self._set_busy(True)
             self.ok.setEnabled(False)
+        else:
+            call("moves", {}, self._got_moves)
         self.text.setFocus()
+
+    def _got_moves(self, reply: dict) -> None:
+        if self.cancelled or "error" in reply:
+            return
+        self.moves = reply["moves"]
+        for move in self.moves[:TOP_MOVES]:
+            button = QPushButton(f"{move['icon']} {move['name']}")
+            button.setToolTip(move["instruction"])
+            button.clicked.connect(lambda _=False, move=move: self.press(move))
+            self.move_row.addWidget(button)
+            self.move_buttons.append(button)
+        if len(self.moves) > TOP_MOVES:
+            more = QPushButton("More ▾")
+            menu = QMenu(more)
+            for move in self.moves[TOP_MOVES:]:
+                menu.addAction(f"{move['icon']} {move['name']}", lambda move=move: self.press(move))
+            more.setMenu(menu)
+            self.move_row.addWidget(more)
+            self.move_buttons.append(more)
+        self.move_row.addStretch()
 
     def _show_card(self) -> None:
         front, back = self.draft_html or (self.before.get("question", ""), self.before.get("answer", ""))
@@ -322,13 +423,33 @@ class FixDialog(QDialog):
         self._render_chat()
 
     def _render_chat(self, thinking: bool = False) -> None:
-        extra = "<p class='who'>AnkiHelper is thinking…</p>" if thinking else ""
+        extra = "<p class='who'>AnkiHelper is working…</p>" if thinking else ""
         self.chat.setHtml("".join(self.bubbles) + extra)
         self.chat.verticalScrollBar().setValue(self.chat.verticalScrollBar().maximum())
 
     def _set_busy(self, busy: bool) -> None:
-        for button in [self.send_button, *self.quick_buttons]:
+        for button in [self.send_button, *self.move_buttons, self.save_move, self.teach_button]:
             button.setEnabled(not busy)
+
+    def _payload(self) -> dict:
+        return {
+            "note_id": self.note.id,
+            "question_html": self.before["question"],
+            "answer_html": self.before["answer"],
+            "messages": self.messages,
+            "draft": self.draft,
+        }
+
+    def press(self, move: dict) -> None:
+        if not self.sides or not self.send_button.isEnabled():
+            return
+        self.messages.append({"role": "learner", "text": f"[pressed the {move['name']} move]"})
+        self._bubble("me", f"<p>{move['icon']} <b>{_escape(move['name'])}</b></p>")
+        self.last_move, self.corrections = move, []
+        self.teach_button.hide()
+        self._set_busy(True)
+        self._render_chat(thinking=True)
+        call("move", {**self._payload(), "move": move["id"]}, lambda reply: self._answered(reply, move["id"]))
 
     def _send_written(self) -> None:
         if not self.send_button.isEnabled():
@@ -343,16 +464,11 @@ class FixDialog(QDialog):
         self.messages.append({"role": "learner", "text": said or "(see the picture)", "images": [os.path.join(mw.col.media.dir(), n) for n in images]})
         pictures = "".join(f"<br><img src='{n}' width='220'>" for n in images)
         self._bubble("me", "<p>" + _escape(said) + pictures + "</p>")
+        if self.last_move and said:
+            self.corrections.append({"role": "learner", "text": said})
         self._set_busy(True)
         self._render_chat(thinking=True)
-        payload = {
-            "note_id": self.note.id,
-            "question_html": self.before["question"],
-            "answer_html": self.before["answer"],
-            "messages": self.messages,
-            "draft": self.draft,
-        }
-        call("chat", payload, self._answered)
+        call("chat", self._payload(), lambda reply: self._answered(reply, None))
 
     def reject(self) -> None:
         self.cancelled = True
@@ -360,7 +476,7 @@ class FixDialog(QDialog):
             self._report(draft=None)
         super().reject()
 
-    def _answered(self, reply: dict) -> None:
+    def _answered(self, reply: dict, move_id: str | None) -> None:
         if self.cancelled:
             return
         self._set_busy(False)
@@ -374,11 +490,12 @@ class FixDialog(QDialog):
         if reply.get("card"):
             self.draft = reply["card"]
             self.draft_html = (reply["front"], reply["back"])
+            self.draft_move = move_id
             self._show_card()
-            html += "<p><i>↑ I updated the card above. Press OK to keep it.</i></p>"
+            html += "<p><i>↑ The card above is the new version. Press OK to keep it.</i></p>"
         self._bubble("ah", html)
         for card in reply.get("new_cards") or []:
-            self.proposals.append(card)
+            self.proposals.append({**card, "move": move_id})
             index = len(self.proposals) - 1
             self.bubbles.append(
                 f"<table class='ah' align='left' cellspacing='0'><tr><td class='newcard'>"
@@ -386,6 +503,9 @@ class FixDialog(QDialog):
                 f"<p><a href='add:{index}'>＋ Add to Anki</a></p></td></tr></table><br clear='all'>"
             )
         self._render_chat()
+        if move_id is None and self.corrections and self.last_move:
+            self.teach_button.setText(f"🎓 Teach “{self.last_move['name']}” this")
+            self.teach_button.show()
         self.text.setFocus()
 
     def _clicked(self, url) -> None:
@@ -409,6 +529,49 @@ class FixDialog(QDialog):
 
         add_note(parent=self, note=new, target_deck_id=self.deck_id).success(done).run_in_background()
 
+    def _save_as_move(self) -> None:
+        if not self.messages:
+            self.status.setText("Talk about the card first: a move is drafted from what you asked for here.")
+            return
+        self._set_busy(True)
+        self.status.setText("⏳ Writing a move from this conversation…")
+
+        def drafted(reply: dict) -> None:
+            self._set_busy(False)
+            self.status.setText("")
+            if "error" in reply:
+                self.status.setText(f"⚠ {reply['error']}")
+                return
+            dialog = MoveDraftDialog(self, reply)
+            if dialog.exec():
+                call("move-save", dialog.values(), lambda saved: tooltip(f"Saved the move {saved.get('icon', '')} {saved.get('name', '')}."))
+
+        call("move-draft", {"question_html": self.before["question"], "answer_html": self.before["answer"], "messages": self.messages}, drafted)
+
+    def _teach(self) -> None:
+        move = self.last_move
+        self._set_busy(True)
+        self.status.setText(f"⏳ Folding your correction into “{move['name']}”…")
+
+        def proposed(reply: dict) -> None:
+            self._set_busy(False)
+            self.status.setText("")
+            if "error" in reply:
+                self.status.setText(f"⚠ {reply['error']}")
+                return
+            dialog = TeachDialog(self, move["name"], reply["old"], reply["new"])
+            if dialog.exec():
+                call("move-update", {"move": move["id"], "instruction": dialog.text.toPlainText().strip()}, lambda _r: tooltip("Move updated."))
+                self.teach_button.hide()
+
+        call("move-teach", {"move": move["id"], "messages": self.messages[-20:]}, proposed)
+
+    def _moves_used(self, draft: dict | None) -> list[dict]:
+        used = [{"move": c["move"], "result": {"question": c["question"], "answer": c["answer"]}} for c in self.added if c.get("move")]
+        if draft and self.draft_move:
+            used.append({"move": self.draft_move, "result": {"question": draft["question"], "answer": draft["answer"]}})
+        return used
+
     def _report(self, draft: dict | None) -> None:
         payload = {
             "note_id": self.note.id,
@@ -417,8 +580,9 @@ class FixDialog(QDialog):
             "messages": self.messages,
             "tags": list(self.note.tags),
             "added": [{"question": c["question"], "answer": c["answer"]} for c in self.added],
+            "moves_used": self._moves_used(draft),
         }
-        call("chat-done", payload, lambda r: tooltip(f"Rule updated from your reasoning: {r['rule_updated']}") if r.get("rule_updated") else None)
+        call("chat-done", payload)
 
     def finish(self) -> None:
         if self.draft_html:
@@ -503,7 +667,7 @@ class HistoryDialog(QDialog):
                     parts.append(f"<p><a href='restore:{index}'>↩ Restore the version from before this change</a></p>")
                 parts.append("<hr>")
         if not parts:
-            parts.append("<p>No changes recorded for this card yet. Talk about it with <b>F</b>, edit it, or apply a rule, and its history shows up here.</p>")
+            parts.append("<p>No changes recorded for this card yet. Work on it with <b>F</b> or edit it, and its history shows up here.</p>")
         self.view.setHtml("".join(parts))
 
     def _clicked(self, url) -> None:
@@ -722,7 +886,7 @@ def _shortcuts(state: str, shortcuts: list) -> None:
 
 def _context_menu(reviewer, menu: QMenu) -> None:
     menu.addSeparator()
-    menu.addAction("AnkiHelper: fix this card  (F)", fix_card)
+    menu.addAction("AnkiHelper: work on this card  (F)", fix_card)
     menu.addAction("AnkiHelper: optimize this card", optimize_card)
     menu.addAction("AnkiHelper: history of this card", show_history)
 
@@ -749,7 +913,7 @@ BUTTON_JS = """
   if (!editCell) return;
   var button = document.createElement("button");
   button.id = "ankihelper-button";
-  button.title = "AnkiHelper: fix this card (F), optimize it, or see its history";
+  button.title = "AnkiHelper: work on this card with your moves (F), optimize it, or see its history";
   button.textContent = "✎ AnkiHelper";
   button.onclick = function () { pycmd("ankihelper:menu"); };
   editCell.appendChild(button);
@@ -776,7 +940,7 @@ def _question_shown(card) -> None:
 
 def _review_menu() -> None:
     menu = QMenu(mw)
-    menu.addAction("Fix this card  (F)", fix_card)
+    menu.addAction("Work on this card  (F)", fix_card)
     menu.addAction("✨ Optimize this card", optimize_card)
     menu.addAction("History of this card", show_history)
     menu.exec(QCursor.pos())
@@ -792,7 +956,7 @@ def _on_js_message(handled: tuple, message: str, context) -> tuple:
 def _menu() -> None:
     menu = QMenu("AnkiHelper", mw)
     for title, handler in (
-        ("Fix current card  (F)", fix_card),
+        ("Work on current card  (F)", fix_card),
         ("Optimize current card", optimize_card),
         ("History of current card", show_history),
         ("Open AnkiHelper", open_app),
@@ -810,34 +974,7 @@ def _menu() -> None:
     mw.form.menuTools.addMenu(menu)
 
 
-WORK_EVERY_MS = 90_000
-"""How often the background rule updates take their next batch of cards while Anki is open."""
-_working = False
-
-
-def _work() -> None:
-    global _working
-    if _working or not mw.col:
-        return
-    _working = True
-
-    def finished(_reply) -> None:
-        global _working
-        _working = False
-
-    call("work", {}, finished)
-
-
-def _start_worker() -> None:
-    from aqt.qt import QTimer
-
-    timer = QTimer(mw)
-    timer.timeout.connect(_work)
-    timer.start(WORK_EVERY_MS)
-
-
 gui_hooks.main_window_did_init.append(_menu)
-gui_hooks.main_window_did_init.append(_start_worker)
 gui_hooks.top_toolbar_did_init_links.append(_toolbar)
 gui_hooks.reviewer_did_show_question.append(_question_shown)
 gui_hooks.reviewer_will_end.append(lambda: _on_question_end())

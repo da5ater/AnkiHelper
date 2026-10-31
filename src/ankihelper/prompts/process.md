@@ -45,12 +45,6 @@ The rules above and below are defaults. When an entry tells you how to build the
 
 "Bold signaling" means each bullet starts with its key term in **bold**, followed by a short plain explanation: "- **Stop guessing capacity**: scale with demand instead of provisioning for a guessed peak."
 
-## The learner's personal rules
-
-These come from the learner's past feedback. Follow them; they override the defaults too.
-
-{rules}
-
 ## Existing cards
 
 An entry with "existing_card": true is a card already in the learner's Anki that they want optimized. Its question and answer are already a card: keep a cleaned version of it as the "main" card, then add the "atomic" and "optimized" cards that would make it stronger, following the same rules.

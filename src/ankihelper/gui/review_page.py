@@ -1,10 +1,12 @@
 import re
 from dataclasses import asdict
 
-from PySide6.QtCore import QPoint, QProcess, QProcessEnvironment, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
+    QMenu,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -16,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import batch, config, inbox, review
+from .. import batch, config, inbox, moves, review
 from ..anki import AnkiConnect
 from ..config import Config
 from . import theme
@@ -24,7 +26,7 @@ from .common import Page, card, label, pill
 from .worker import run_async
 
 GROUP_COLORS = {"main": theme.AMBER, "atomic": theme.BLUE, "optimized": theme.GREEN}
-PR_URL = re.compile(r"https://github\.com/\S+/pull/\d+")
+TOP_MOVES = 3
 INDENT = 46
 STUB_Y = 26
 """Height on a node where its connector line meets it (the middle of its header row)."""
@@ -117,9 +119,10 @@ class CardNode(QFrame):
     remove = Signal(int)
     undo = Signal(int)
     change = Signal(int, str)
-    versions = Signal(int)
+    move = Signal(int, str)
+    teach = Signal(int)
 
-    def __init__(self, index: int, total: int, slot: review.Slot, entry: inbox.Entry, busy_text: str, locked: bool):
+    def __init__(self, index: int, total: int, slot: review.Slot, entry: inbox.Entry, busy_text: str, locked: bool, move_list: list):
         super().__init__()
         self.index = index
         self.setObjectName("node")
@@ -172,12 +175,26 @@ class CardNode(QFrame):
             accept = _small_button("✓ Accepted" if accepted else "✓ Accept", "Click again to un-accept" if accepted else "This card is good", "accept")
             accept.setProperty("on", accepted)
             accept.clicked.connect(lambda: (self.undo if accepted else self.accept).emit(index))
-            change = _small_button("✎ Change", "Tell the agent what to change in this card")
-            versions = _small_button("✨ Versions", "Other ways to ask this card")
-            versions.clicked.connect(lambda: self.versions.emit(index))
             remove = _small_button("✕ Remove", "Leave this card out", "remove")
             remove.clicked.connect(lambda: self.remove.emit(index))
-            buttons += [accept, change, versions, remove]
+            buttons += [accept, remove]
+            for m in move_list[:TOP_MOVES]:
+                button = _small_button(f"{m.icon} {m.name}", m.instruction)
+                button.clicked.connect(lambda _=False, move_id=m.id: self.move.emit(index, move_id))
+                buttons.append(button)
+            more = _small_button("More ▾", "Your other moves, and changing the card in your own words")
+            menu = QMenu(more)
+            for m in move_list[TOP_MOVES:]:
+                menu.addAction(f"{m.icon} {m.name}", lambda move_id=m.id: self.move.emit(index, move_id))
+            menu.addSeparator()
+            change = menu.addAction("✎ Change it in my own words…")
+            more.setMenu(menu)
+            buttons.append(more)
+            if slot.teach:
+                name = next((m.name for m in move_list if m.id == slot.teach[0]), "the move")
+                teach = _small_button(f"🎓 Teach “{name}” this?", "Fold your correction into the move so it comes out right next time", "go")
+                teach.clicked.connect(lambda: self.teach.emit(index))
+                buttons.append(teach)
             self.box = QWidget()
             box_layout = QHBoxLayout(self.box)
             box_layout.setContentsMargins(0, 0, 0, 0)
@@ -192,7 +209,7 @@ class CardNode(QFrame):
             box_layout.addWidget(send)
             box_layout.addWidget(cancel)
             self.box.hide()
-            change.clicked.connect(lambda: (self.box.show(), self.text.setFocus()))
+            change.triggered.connect(lambda: (self.box.show(), self.text.setFocus()))
         for button in buttons:
             button.setEnabled(not locked)
             actions.addWidget(button)
@@ -324,11 +341,38 @@ class TreeCanvas(QWidget):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
 
 
+class TeachDialog(QDialog):
+    """Old and new instruction side by side; the learner edits the new one and decides."""
+
+    def __init__(self, parent, name: str, old: str, new: str):
+        super().__init__(parent)
+        self.setWindowTitle(f"Teach “{name}”")
+        self.resize(620, 420)
+        layout = QVBoxLayout(self)
+        layout.addWidget(label("NOW", "fieldLabel"))
+        layout.addWidget(label(old, "muted", wrap=True))
+        layout.addWidget(label("AFTER YOUR CORRECTION (edit it if you like)", "fieldLabel"))
+        self.text = QPlainTextEdit(new)
+        layout.addWidget(self.text, 1)
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Keep it as it is")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Teach the move")
+        save.setObjectName("primary")
+        save.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+
+    def instruction(self) -> str:
+        return self.text.toPlainText().strip()
+
+
 class ReviewPage(Page):
     back = Signal()
     changed = Signal()
     saved = Signal(str)
-    rule_saved = Signal(str)
     removed = Signal(object)
 
     def __init__(self, cfg: Config):
@@ -338,8 +382,6 @@ class ReviewPage(Page):
         self.busy = False
         self.busy_target: int | None = None
         self.busy_text = ""
-        self.process: QProcess | None = None
-        self.worktree = None
 
         back = QPushButton("←  Inbox")
         back.clicked.connect(self.back.emit)
@@ -353,24 +395,6 @@ class ReviewPage(Page):
         self.scroll.verticalScrollBar().valueChanged.connect(self.canvas.update)
         self.layout_.addWidget(self.scroll, 1)
 
-        self.rule_panel = card()
-        rule_layout = QVBoxLayout(self.rule_panel)
-        rule_layout.setContentsMargins(14, 12, 14, 12)
-        rule_layout.addWidget(label("PERSONAL RULE", "fieldLabel"))
-        self.rule_text = QLineEdit()
-        rule_layout.addWidget(self.rule_text)
-        rule_buttons = QHBoxLayout()
-        save = QPushButton("Save rule")
-        save.clicked.connect(lambda: self.save_rule(propose=False))
-        propose = QPushButton("Save + propose as PR")
-        propose.setToolTip(f"Also asks the agent to build the rule into AnkiHelper itself and open a PR on {review.REPO}")
-        propose.clicked.connect(lambda: self.save_rule(propose=True))
-        rule_buttons.addWidget(label("Applies to every future card. Edit it first if you like.", "faint"), 1)
-        rule_buttons.addWidget(save)
-        rule_buttons.addWidget(propose)
-        rule_layout.addLayout(rule_buttons)
-        self.rule_panel.hide()
-        self.layout_.addWidget(self.rule_panel)
 
         self.log = QPlainTextEdit()
         self.log.setObjectName("log")
@@ -387,9 +411,6 @@ class ReviewPage(Page):
         bar = QHBoxLayout()
         self.status = label("", "muted", wrap=True)
         self.status.setOpenExternalLinks(True)
-        self.rule_button = QPushButton("📌  Make rule")
-        self.rule_button.setToolTip("Turn what you asked for into a rule every future card follows")
-        self.rule_button.clicked.connect(self.suggest_rule)
         self.accept_all_button = QPushButton("✓  Accept all")
         self.accept_all_button.setToolTip("Accept all: every card you haven't removed")
         self.accept_all_button.clicked.connect(self.accept_all)
@@ -406,14 +427,12 @@ class ReviewPage(Page):
         self.header.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.layout_.addWidget(self.status)
         bar.addStretch()
-        bar.addWidget(self.rule_button)
         bar.addWidget(self.accept_all_button)
         bar.addWidget(self.import_button)
         bar.addWidget(self.keep_button)
         self.layout_.addLayout(bar)
 
     def open(self, entry: inbox.Entry) -> None:
-        self.rule_panel.hide()
         self.log.hide()
         self.replace_box.setVisible(entry.source_note is not None)
         self.replace_box.setChecked(entry.replace_source)
@@ -460,14 +479,16 @@ class ReviewPage(Page):
                 self.canvas.add(Placeholder(self.busy_text), 1, source)
         else:
             total = len(self.review.slots)
+            move_list = moves.ordered()
             for index, slot in enumerate(self.review.slots):
                 busy_text = self.busy_text if self.busy and self.busy_target == index else ""
-                node = CardNode(index, total, slot, entry, busy_text, self.busy)
+                node = CardNode(index, total, slot, entry, busy_text, self.busy, move_list)
                 node.accept.connect(lambda i: self._set_status(i, review.ACCEPTED))
                 node.remove.connect(lambda i: self._set_status(i, review.REMOVED))
                 node.undo.connect(lambda i: self._set_status(i, review.PENDING))
                 node.change.connect(self.change)
-                node.versions.connect(self.show_versions)
+                node.move.connect(self.apply_move)
+                node.teach.connect(self.teach_move)
                 self.canvas.add(node, 1, source)
                 for number, version in enumerate(slot.versions):
                     child = VersionNode(index, number, version, entry, self.busy)
@@ -487,7 +508,6 @@ class ReviewPage(Page):
         for button in (self.keep_button, self.import_button):
             button.setEnabled(not self.busy and accepted > 0)
         self.accept_all_button.setEnabled(not self.busy and pending > 0)
-        self.rule_button.setEnabled(not self.busy and bool(self.review.feedback))
         if self.busy:
             self._say(f"⏳ {self.busy_text}")
         elif slots and not accepted:
@@ -511,8 +531,23 @@ class ReviewPage(Page):
     def change(self, index: int, feedback: str) -> None:
         self._work(index, f"Rewriting this card: “{feedback}”", lambda: review.revise(self.cfg, self.review, index, feedback))
 
-    def show_versions(self, index: int) -> None:
-        self._work(index, "Writing other versions of this card…", lambda: review.versions(self.cfg, self.review, index))
+    def apply_move(self, index: int, move_id: str) -> None:
+        move = moves.get(move_id)
+        self._work(index, f"{move.icon} {move.name}…", lambda: review.apply_move(self.cfg, self.review, index, move_id))
+
+    def teach_move(self, index: int) -> None:
+        slot = self.review.slots[index]
+
+        def done(result) -> None:
+            old, new = result
+            dialog = TeachDialog(self, moves.get(slot.teach[0]).name, old, new)
+            if dialog.exec():
+                moves.update_instruction(slot.teach[0], dialog.instruction())
+                self._say("🎓 Move updated. It comes out this way next time; undo it on the Moves page.", theme.GREEN)
+            slot.teach = None
+            self.render()
+
+        self._work(-1, "Folding your correction into the move…", lambda: review.teach_move(self.cfg, slot), done)
 
     def _use(self, index: int, number: int, add: bool) -> None:
         review.use_version(self.review, index, self.review.slots[index].versions[number], add)
@@ -523,6 +558,7 @@ class ReviewPage(Page):
         self.render()
 
     def keep(self) -> None:
+        self.review.teach_moves()
         cards = self.review.accepted()
         inbox.approve(self.review.entry.id, [asdict(c) for c in cards], self.replace_box.isChecked())
         self.changed.emit()
@@ -537,59 +573,3 @@ class ReviewPage(Page):
             self.saved.emit(f"✓ Imported into Anki: {summary.message()}")
 
         self._work(-1, "Importing into Anki…", lambda: batch.run(self.cfg, AnkiConnect(self.cfg.anki_url), only={entry_id}), done)
-
-    def suggest_rule(self) -> None:
-        def done(rule) -> None:
-            if rule is None:
-                self._say("Your feedback was about these cards only, so there's no general rule to save.")
-                return
-            self.rule_text.setText(rule)
-            self.rule_panel.show()
-            self.rule_text.setFocus()
-
-        self._work(-1, "Turning your feedback into a rule…", lambda: review.suggest_rule(self.cfg, self.review), done)
-
-    def save_rule(self, propose: bool) -> None:
-        rule = self.rule_text.text().strip()
-        if not rule:
-            return
-        review.save_rule(rule)
-        self.rule_panel.hide()
-        self.changed.emit()
-        self._say("📌 Rule saved. Every future card follows it. Settings → Rule updates can apply it to your existing cards.", theme.GREEN)
-        self.rule_saved.emit(rule)
-        if propose:
-            self._propose(rule)
-
-    def _propose(self, rule: str) -> None:
-        try:
-            env = review.github_env(self.cfg)
-            cmd, self.worktree = review.pr_command(self.cfg, rule)
-        except Exception as error:
-            return self._say(f"⚠ {error}", theme.RED)
-        self.log.clear()
-        self.log.show()
-        self.log.appendPlainText(
-            f"{self.cfg.agent} is building the rule into AnkiHelper in {self.worktree}; the PR is opened as {self.cfg.github_account} …"
-        )
-        self.process = QProcess(self)
-        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        self.process.setWorkingDirectory(str(self.worktree))
-        environment = QProcessEnvironment.systemEnvironment()
-        for key, value in env.items():
-            environment.insert(key, value)
-        self.process.setProcessEnvironment(environment)
-        self.process.readyReadStandardOutput.connect(
-            lambda: self.log.appendPlainText(bytes(self.process.readAllStandardOutput()).decode(errors="replace").rstrip())
-        )
-        self.process.finished.connect(self._proposed)
-        self.process.start(cmd[0], cmd[1:])
-
-    def _proposed(self, code: int, _status) -> None:
-        url = PR_URL.findall(self.log.toPlainText())
-        self.process = None
-        review.remove_worktree(self.worktree)
-        if url:
-            self._say(f'🚀 PR opened: <a href="{url[-1]}" style="color:{theme.CYAN}">{url[-1]}</a>', theme.GREEN)
-        else:
-            self._say(f"⚠ The agent finished (exit {code}) without opening a PR. The log above says why.", theme.RED)

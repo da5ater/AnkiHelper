@@ -74,9 +74,6 @@ class Summary:
     skipped: int = 0
     failed: dict[str, str] = field(default_factory=dict)
     sync_error: str | None = None
-    fixed: int = 0
-    fix_errors: list[str] = field(default_factory=list)
-    suggestions: int = 0
 
     def message(self) -> str:
         parts = [f"{self.imported} imported"]
@@ -88,12 +85,6 @@ class Summary:
             parts.append(f"{self.skipped} skipped as unusable")
         if self.failed:
             parts.append(f"{len(self.failed)} failed (kept in inbox)")
-        if self.fixed:
-            parts.append(f"{self.fixed} flagged card(s) fixed")
-        if self.fix_errors:
-            parts.append(f"{len(self.fix_errors)} flagged card(s) could not be fixed")
-        if self.suggestions:
-            parts.append(f"{self.suggestions} new rule suggestion(s) in Settings")
         text = ", ".join(parts)
         if self.sync_error:
             text += f". Sync failed: {self.sync_error}"
@@ -178,7 +169,6 @@ def clean(
         "process",
         entries="\n".join(rows),
         language=language,
-        rules=config.personal_rules() or "(none yet)",
     )
     for attempt in range(CLEAN_ATTEMPTS):
         try:
@@ -279,12 +269,9 @@ def _clean_all(agent: str, language: str, entries: list[Entry], summary: Summary
 
 
 def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = None) -> Summary:
-    from . import bridge, learning
-
     entries = [e for e in inbox.read_all() if only is None or e.id in only]
     summary = Summary()
-    has_flags = only is None and bridge.has_flagged()
-    if not entries and not has_flags:
+    if not entries:
         return summary
 
     anki.ensure_running()
@@ -351,13 +338,6 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
 
     if stopped:
         raise stopped
-    if has_flags:
-        summary.fixed, summary.fix_errors = bridge.fix_flagged(cfg, anki)
-    if only is None:
-        try:
-            summary.suggestions = len(learning.learn(cfg))
-        except agents.AgentError:
-            pass
     try:
         anki.sync()
     except (AnkiError, AnkiUnreachable) as error:

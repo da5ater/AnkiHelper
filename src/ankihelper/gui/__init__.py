@@ -20,11 +20,12 @@ from .capture import CapturePage
 from .common import label, pill
 from .inbox_page import InboxPage
 from .review_page import ReviewPage
+from .moves_page import MovesPage
 from .settings_page import SettingsPage
 from .setup_page import SetupPage
 
 APP_ID = "ankihelper"
-NAV = [("capture", "✍   Capture"), ("inbox", "📥   Inbox"), ("setup", "🩺   Setup"), ("settings", "⚙   Settings")]
+NAV = [("capture", "✍   Capture"), ("inbox", "📥   Inbox"), ("moves", "🎯   Moves"), ("setup", "🩺   Setup"), ("settings", "⚙   Settings")]
 
 
 def make_app() -> QApplication:
@@ -48,11 +49,13 @@ class MainWindow(QWidget):
         self.inbox = InboxPage(cfg)
         self.setup = SetupPage(cfg)
         self.settings = SettingsPage(cfg)
+        self.moves = MovesPage(cfg)
         self.review = ReviewPage(cfg)
         self.pages = {
             "capture": self.capture,
             "inbox": self.inbox,
             "setup": self.setup,
+            "moves": self.moves,
             "settings": self.settings,
             "review": self.review,
         }
@@ -68,8 +71,6 @@ class MainWindow(QWidget):
         self.review.saved.connect(lambda text: (self.go("inbox"), self.inbox.flash(text)))
         self.review.removed.connect(lambda entry: (self.go("inbox"), self.inbox.remove(entry)))
         self.review.changed.connect(self._refresh_badges)
-        self.review.changed.connect(self.settings.reload_rules)
-        self.review.rule_saved.connect(self.settings.prefill_rule)
         self.settings.changed.connect(self._settings_changed)
         self.setup.idle.connect(self._maybe_quit)
 
@@ -129,9 +130,6 @@ class MainWindow(QWidget):
         self.review.open(entry)
 
     def go(self, name: str) -> None:
-        if name == "settings":
-            self.settings.reload_rules()
-            self.settings.reload_jobs()
         self.nav_buttons["inbox" if name == "review" else name].setChecked(True)
         self.stack.setCurrentWidget(self.pages[name])
         self.pages[name].shown()

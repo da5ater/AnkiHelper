@@ -38,7 +38,7 @@ def cmd_batch(args) -> int:
         log = _log_traceback("batch")
         platform.notify("AnkiHelper: batch crashed", f"{error}\nLog: {log}", offer_setup=True)
         raise
-    if not (summary.imported or summary.duplicates or summary.skipped or summary.failed or summary.fixed or summary.fix_errors or summary.suggestions):
+    if not (summary.imported or summary.duplicates or summary.skipped or summary.failed):
         platform.notify("AnkiHelper", "Inbox is empty")
         print("Inbox is empty")
         return 0
@@ -49,73 +49,69 @@ def cmd_batch(args) -> int:
     return 1 if summary.failed else 0
 
 
+def _in_background(*args: str) -> None:
+    subprocess.Popen(
+        [sys.executable, "-m", "ankihelper", *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _move_dict(move) -> dict:
+    return {"id": move.id, "icon": move.icon, "name": move.name, "mode": move.mode, "instruction": move.instruction, "uses": move.uses}
+
+
 def cmd_anki(args) -> int:
     """JSON in on stdin, JSON out on stdout: the protocol the Anki add-on speaks."""
-    from . import bridge, learning
+    from . import bridge, moves
 
     request = json.loads(sys.stdin.read() or "{}")
     cfg = Config.load()
+    note = lambda: int(request["note_id"])  # noqa: E731
     try:
-        if args.action == "fix":
-            reply = bridge.rewrite(
-                cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["feedback"], request.get("tags")
-            )
-        elif args.action == "optimize":
-            entry = bridge.optimize(cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request.get("deck", ""))
-            subprocess.Popen(
-                [sys.executable, "-m", "ankihelper", "setup", "review", "--entry", entry.id],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+        if args.action == "optimize":
+            entry = bridge.optimize(cfg, note(), request["question_html"], request["answer_html"], request.get("deck", ""))
+            _in_background("setup", "review", "--entry", entry.id)
             reply = {"entry_id": entry.id}
-        elif args.action == "work":
-            from . import jobs
-
-            reply = jobs.run_batch(cfg, AnkiConnect(cfg.anki_url)) or {"idle": True}
-        elif args.action == "jobs":
-            from . import jobs
-
-            reply = {"active": len(jobs.active())}
-        elif args.action == "flag":
-            bridge.flag(int(request["note_id"]), request.get("feedback", ""))
-            reply = {"ok": True}
         elif args.action == "event":
-            learn_now = bridge.report(request)
-            if learn_now:
-                subprocess.Popen(
-                    [sys.executable, "-m", "ankihelper", "learn"],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+            bridge.report(request)
             reply = {"ok": True}
         elif args.action == "chat":
-            reply = bridge.chat(
-                cfg, int(request["note_id"]), request["question_html"], request["answer_html"], request["messages"], request.get("draft")
-            )
+            reply = bridge.chat(cfg, note(), request["question_html"], request["answer_html"], request["messages"], request.get("draft"))
         elif args.action == "chat-done":
             reply = bridge.finish_chat(
                 cfg,
-                int(request["note_id"]),
+                note(),
                 request["before"],
                 request.get("draft"),
                 request["messages"],
                 request.get("tags") or [],
                 request.get("added") or [],
+                request.get("moves_used") or [],
             )
-        elif args.action == "unflag":
-            bridge.unflag_note(int(request["note_id"]))
-            reply = {"ok": True}
-        elif args.action == "written":
-            bridge.note_written(int(request["note_id"]))
-            reply = {"ok": True}
+            if reply.pop("nudge_now", False):
+                _in_background("moves-nudge")
+        elif args.action == "moves":
+            reply = {"moves": [_move_dict(m) for m in moves.ordered()]}
+        elif args.action == "move":
+            reply = bridge.run_move(
+                cfg, note(), request["move"], request["question_html"], request["answer_html"], request.get("messages") or [], request.get("draft")
+            )
+        elif args.action == "move-draft":
+            reply = bridge.draft_move(cfg, request["question_html"], request["answer_html"], request["messages"])
+        elif args.action == "move-save":
+            reply = _move_dict(moves.create(request["name"], request.get("icon", "★"), request.get("mode", "add"), request["instruction"]))
+        elif args.action == "move-teach":
+            move = moves.get(request["move"])
+            reply = {"old": move.instruction, "new": moves.teach(cfg, request["move"], request["messages"])}
+        elif args.action == "move-update":
+            reply = _move_dict(moves.update_instruction(request["move"], request["instruction"]))
         elif args.action == "history":
-            reply = bridge.history(int(request["note_id"]))
+            reply = bridge.history(note())
         elif args.action == "use-version":
-            reply = bridge.use_version(int(request["note_id"]), request["card"])
+            reply = bridge.use_version(note(), request["card"])
         else:
             reply = {"error": f"unknown action {args.action}"}
     except Exception as error:
@@ -125,14 +121,14 @@ def cmd_anki(args) -> int:
     return 0 if "error" not in reply else 1
 
 
-def cmd_learn(args) -> int:
-    from . import learning
+def cmd_moves_nudge(args) -> int:
+    from . import moves
 
-    found = learning.learn(Config.load())
+    found = moves.nudge(Config.load())
     if found:
-        platform.notify("AnkiHelper", f"{len(found)} new rule suggestion(s) from how you edit and delete cards. See Settings.")
+        platform.notify("AnkiHelper", f"{len(found)} new move suggestion(s) from your conversations. See the Moves page.")
     for item in found:
-        print(f"- {item['rule']}  ({item['evidence']})")
+        print(f"- {item['icon']} {item['name']}: {item['instruction']}  ({item['evidence']})")
     return 0
 
 
@@ -177,16 +173,17 @@ def main(argv: list[str] | None = None) -> int:
     batch_parser.add_argument("--agent", choices=list(agents.AGENTS), help="override the default agent for this run")
     batch_parser.set_defaults(func=cmd_batch)
     window = sub.add_parser("setup", help="open the window (setup page by default)")
-    window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "setup", "settings", "review"])
+    window.add_argument("page", nargs="?", default="setup", choices=["capture", "inbox", "moves", "setup", "settings", "review"])
     window.add_argument("--entry", help="with the review page: the inbox entry to preview")
     window.set_defaults(func=cmd_setup)
     sub.add_parser("doctor", help="print the setup checklist").set_defaults(func=cmd_doctor)
     anki_parser = sub.add_parser("anki", help="requests from the AnkiHelper add-on inside Anki (JSON on stdin)")
     anki_parser.add_argument(
-        "action", choices=["fix", "flag", "event", "written", "history", "use-version", "optimize", "work", "jobs", "unflag", "chat", "chat-done"]
+        "action",
+        choices=["optimize", "event", "chat", "chat-done", "moves", "move", "move-draft", "move-save", "move-teach", "move-update", "history", "use-version"],
     )
     anki_parser.set_defaults(func=cmd_anki)
-    sub.add_parser("learn", help="suggest rules from your recent edits and deletions in Anki").set_defaults(func=cmd_learn)
+    sub.add_parser("moves-nudge", help="suggest moves from requests you keep making in conversations").set_defaults(func=cmd_moves_nudge)
     sub.add_parser("install-addon", help="install the AnkiHelper add-on into Anki").set_defaults(func=cmd_install_addon)
     args = parser.parse_args(argv)
     if not args.command:

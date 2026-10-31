@@ -12,15 +12,13 @@ from datetime import datetime
 
 from filelock import FileLock
 
-from . import agents, config, jobs, learning, notes, render
+from . import agents, config, learning, moves, notes, render
 from .batch import Card, card_html
 from .config import Config
 from .inbox import Entry
 
 FIXED_TAG = "ah::fixed"
 RECENT_WRITE_SECONDS = 120
-CLOZE = 1
-
 
 SOURCE_BLOCK = re.compile(r"Source<br>((?:<img\b[^>]*>)+)")
 """The "Source" caption AnkiHelper puts above a read picture; the picture stays, the caption is not card text."""
@@ -36,70 +34,27 @@ def _images_in(fragment: str) -> str:
     return "".join(re.findall(r"<img\b[^>]*>", fragment))
 
 
-def rewrite(cfg: Config, note_id: int, question_html: str, answer_html: str, feedback: str, tags: list[str] | None = None) -> dict:
-    """New question and answer HTML for a note, from the learner's feedback.
-
-    The card as it is in Anki now is what gets rewritten, so hand edits and added pictures survive;
-    AnkiHelper's own record only supplies the learner's original note as context."""
+def _context(cfg: Config, note_id: int) -> tuple[dict | None, Entry | None, str]:
     record = notes.find(note_id)
     entry = Entry(**record["entry"]) if record else None
-    current = {"question": text_of(question_html), "answer": text_of(answer_html)}
-    original = {"question": entry.question, "answer": entry.answer} if entry else {}
-    text = agents.prompt(
-        "fix_note",
-        language=(entry.language if entry and entry.language else cfg.language),
-        rules=config.personal_rules() or "(none yet)",
-        original=json.dumps(original, ensure_ascii=False),
-        card=json.dumps(current, ensure_ascii=False),
-        feedback=feedback,
-    )
-    reply = agents.extract_json(agents.ask(cfg.agent, text))
-    base = record["card"] if record else {}
-    card = Card.parse({**base, **reply, "source_id": entry.id if entry else "", "changed": True})
-    front = render.question_html(card.question) + _images_in(question_html)
-    back = render.to_html(card.answer) + _images_in(answer_html)
-    if entry:
-        notes.record(note_id, entry, card)
-    learning.log(
-        {
-            "kind": "fix",
-            "note_id": note_id,
-            "feedback": feedback,
-            "before": current,
-            "before_html": {"question": question_html, "answer": answer_html},
-            "after": {"question": card.question, "answer": card.answer},
-        }
-    )
-    reply = {"front": front, "back": back, "add_tags": [FIXED_TAG], "bloom": card.bloom}
-    job = jobs.job_for_note(tags or [])
-    if job:
-        before = _before_job(note_id, job["id"])
-        new_rules = jobs.refine(cfg, job, before or current, current, feedback)
-        if new_rules:
-            reply["rule_updated"] = "; ".join(new_rules)
-    return reply
+    language = entry.language if entry and entry.language else cfg.language
+    return record, entry, language
 
 
-def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messages: list[dict], draft: dict | None) -> dict:
-    """One turn of the learner's conversation about a card: an answer, and maybe a new draft of the card."""
-    record = notes.find(note_id)
-    entry = Entry(**record["entry"]) if record else None
-    current = {"question": text_of(question_html), "answer": text_of(answer_html)}
-    text = agents.prompt(
-        "chat_card",
-        language=(entry.language if entry and entry.language else cfg.language),
-        rules=config.personal_rules() or "(none yet)",
-        original=json.dumps({"question": entry.question, "answer": entry.answer} if entry else {}, ensure_ascii=False),
-        card=json.dumps(current, ensure_ascii=False),
-        draft=json.dumps(draft or {}, ensure_ascii=False),
-        messages="\n".join(
-            f"{m['role']}: {m['text']}" + (f" [attached pictures, read them: {', '.join(m['images'])}]" if m.get("images") else "")
-            for m in messages[-30:]
-        ),
+def _messages_text(messages: list[dict]) -> str:
+    return "\n".join(
+        f"{m['role']}: {m['text']}" + (f" [attached pictures, read them: {', '.join(m['images'])}]" if m.get("images") else "")
+        for m in messages[-30:]
     )
-    pictures = [path for m in messages[-30:] for path in m.get("images") or []]
-    reply = agents.extract_json(agents.ask(cfg.agent, text, images=pictures))
-    said = str(reply.get("reply") or "").strip() or "OK."
+
+
+def _pictures(messages: list[dict]) -> list[str]:
+    return [path for m in messages[-30:] for path in m.get("images") or []]
+
+
+def _render_reply(reply: dict, record: dict | None, entry: Entry | None, question_html: str, answer_html: str, group: str) -> dict:
+    """Turn an agent's {"reply", "card", "new_cards"} into what the add-on shows: text plus ready HTML."""
+    said = str(reply.get("reply") or "").strip() or "Done."
     answer: dict = {"reply": said, "reply_html": render.to_html(said)}
     raw = reply.get("card")
     if isinstance(raw, dict) and raw.get("question") and raw.get("answer"):
@@ -108,10 +63,10 @@ def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messag
         answer["front"] = render.question_html(card.question) + _images_in(question_html)
         answer["back"] = render.to_html(card.answer) + _images_in(answer_html)
     new_cards = []
-    for raw_new in (reply.get("new_cards") or [])[:3]:
+    for raw_new in (reply.get("new_cards") or [])[:4]:
         if isinstance(raw_new, dict) and raw_new.get("question") and raw_new.get("answer"):
-            card = Card.parse({**raw_new, "source_id": entry.id if entry else "", "changed": True, "group": "chat"})
-            tags = ["ah::chat", f"ah::bloom::{card.bloom}"] if card.bloom else ["ah::chat"]
+            card = Card.parse({**raw_new, "source_id": entry.id if entry else "", "changed": True, "group": group})
+            tags = [f"ah::group::{card.group}"] + ([f"ah::bloom::{card.bloom}"] if card.bloom else [])
             new_cards.append(
                 {
                     "question": card.question,
@@ -126,10 +81,46 @@ def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messag
     return answer
 
 
+def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messages: list[dict], draft: dict | None) -> dict:
+    """One turn of the learner's conversation about a card: a short reply, and maybe a new draft or new cards."""
+    record, entry, language = _context(cfg, note_id)
+    text = agents.prompt(
+        "chat_card",
+        language=language,
+        original=json.dumps({"question": entry.question, "answer": entry.answer} if entry else {}, ensure_ascii=False),
+        card=json.dumps({"question": text_of(question_html), "answer": text_of(answer_html)}, ensure_ascii=False),
+        draft=json.dumps(draft or {}, ensure_ascii=False),
+        messages=_messages_text(messages),
+    )
+    reply = agents.extract_json(agents.ask(cfg.agent, text, images=_pictures(messages)))
+    return _render_reply(reply, record, entry, question_html, answer_html, "chat")
+
+
+def run_move(cfg: Config, note_id: int, move_id: str, question_html: str, answer_html: str, messages: list[dict], draft: dict | None) -> dict:
+    """Press a move on a card in Anki. Works on the latest draft when the conversation already changed the card."""
+    record, entry, language = _context(cfg, note_id)
+    card = draft or {"question": text_of(question_html), "answer": text_of(answer_html)}
+    original = {"question": entry.question, "answer": entry.answer} if entry else {}
+    reply = moves.run(cfg, move_id, card, original, messages, _pictures(messages), language)
+    return _render_reply(reply, record, entry, question_html, answer_html, move_id)
+
+
+def draft_move(cfg: Config, question_html: str, answer_html: str, messages: list[dict]) -> dict:
+    return moves.draft_from_conversation(cfg, {"question": text_of(question_html), "answer": text_of(answer_html)}, messages)
+
+
 def finish_chat(
-    cfg: Config, note_id: int, before_html: dict, draft: dict | None, messages: list[dict], tags: list[str], added: list[dict] | None = None
+    cfg: Config,
+    note_id: int,
+    before_html: dict,
+    draft: dict | None,
+    messages: list[dict],
+    tags: list[str],
+    added: list[dict] | None = None,
+    moves_used: list[dict] | None = None,
 ) -> dict:
-    """The learner pressed OK: remember the card and the whole conversation, which is what learning reads."""
+    """The learner pressed OK or closed the window: remember the conversation, and teach each move the
+    result the learner kept from it."""
     before = {"question": text_of(before_html["question"]), "answer": text_of(before_html["answer"])}
     record = notes.find(note_id)
     if record and draft:
@@ -147,31 +138,16 @@ def finish_chat(
             "added_cards": [{"question": c["question"], "answer": c["answer"]} for c in added or []],
         }
     )
-    unflag_note(note_id)
-    reply: dict = {"ok": True, "add_tags": [FIXED_TAG] if draft else []}
-    job = jobs.job_for_note(tags)
-    if job and draft:
-        said = " / ".join(m["text"] for m in messages if m["role"] == "learner")
-        new_rules = jobs.refine(cfg, job, _before_job(note_id, job["id"]) or before, before, said)
-        if new_rules:
-            reply["rule_updated"] = "; ".join(new_rules)
-    return reply
-
-
-def _before_job(note_id: int, job_id: str) -> dict | None:
-    path = config.data_dir() / "backups.jsonl"
-    if not path.exists():
-        return None
-    for line in path.read_text().splitlines():
-        item = json.loads(line) if line.strip() else {}
-        if item.get("note_id") == note_id and item.get("job") == job_id:
-            values = list(item["fields"].values())
-            return {"question": text_of(values[0]), "answer": text_of(values[1])}
-    return None
+    for used in moves_used or []:
+        try:
+            moves.record_example(used["move"], before, used["result"])
+        except KeyError:
+            continue
+    return {"ok": True, "add_tags": [FIXED_TAG] if draft else [], "nudge_now": moves.nudge_due()}
 
 
 def optimize(cfg: Config, note_id: int, question_html: str, answer_html: str, deck: str) -> Entry:
-    """Turn an existing Anki card into an inbox entry so Preview can offer optimized versions of it."""
+    """Turn an existing Anki card into an inbox entry so Preview can work on it with moves."""
     root = cfg.root_deck + "::"
     topic = deck[len(root) :] if deck.startswith(root) else deck
     entry = Entry.new(text_of(question_html), text_of(answer_html), topic)
@@ -204,8 +180,8 @@ def note_written(note_id: int) -> None:
         _writes_path().write_text(json.dumps(writes))
 
 
-def report(request: dict) -> bool:
-    """Record the edits and deletions the add-on saw ({"events": [...]}). Returns whether it is time to look for patterns."""
+def report(request: dict) -> None:
+    """Record the edits and deletions the add-on saw ({"events": [...]})."""
     with _writes_lock():
         writes = _recent_writes()
     now = datetime.now().timestamp()
@@ -214,101 +190,14 @@ def report(request: dict) -> bool:
         if event.get("kind") == "edit" and written and now - written < RECENT_WRITE_SECONDS:
             continue
         learning.log(event)
-    return learning.due()
 
 
-def _rewritable(anki, info: dict) -> bool:
-    """Same rule as the add-on: exactly two fields and not a cloze (or image occlusion) note type."""
-    if len(info.get("fields") or {}) != 2:
-        return False
-    [model] = anki.invoke("findModelsByName", modelNames=[info["modelName"]])
-    return model.get("type") != CLOZE
-
-
-def fix_flagged(cfg: Config, anki) -> tuple[int, list[str]]:
-    """Rewrite the cards the learner flagged in Anki, one at a time. Returns (fixed count, errors).
-
-    Each flag leaves the list as soon as it is handled, so a batch that dies midway loses nothing;
-    flags that fail for a reason a retry could fix stay for the next batch."""
-    fixed, errors = 0, []
-    for item in list_flagged():
-        note_id = item["note_id"]
-        try:
-            [info] = anki.notes_info([note_id])
-            if not info:
-                errors.append(f"note {note_id} was deleted; flag dropped")
-                unflag(item)
-                continue
-            if not _rewritable(anki, info):
-                errors.append(f"note {note_id} is not a two-field question/answer card; flag dropped")
-                unflag(item)
-                continue
-            (q_name, q), (a_name, a) = sorted(info["fields"].items(), key=lambda kv: kv[1]["order"])
-            result = rewrite(cfg, note_id, q["value"], a["value"], item["feedback"], info.get("tags"))
-            note_written(note_id)
-            anki.update_fields(note_id, {q_name: result["front"], a_name: result["back"]})
-            anki.add_tags([note_id], result["add_tags"])
-            _clear_red_flag(anki, note_id)
-            unflag(item)
-            fixed += 1
-        except Exception as error:  # one bad flag must not stop the others; it stays flagged
-            errors.append(f"note {note_id}: {error}")
-    return fixed, errors
-
-
-def _clear_red_flag(anki, note_id: int) -> None:
-    try:
-        for card_id in anki.invoke("findCards", query=f"nid:{note_id} flag:1"):
-            anki.invoke("setSpecificValueOfCard", card=card_id, keys=["flags"], newValues=[0])
-    except Exception:  # the flag is only a visual hint
-        pass
-
-
-def _flagged_path():
-    return config.data_dir() / "flagged.jsonl"
-
-
-def _flags_lock() -> FileLock:
-    return FileLock(str(_flagged_path()) + ".lock")
-
-
-def flag(note_id: int, feedback: str) -> None:
-    item = {"note_id": note_id, "feedback": feedback, "time": datetime.now().isoformat(timespec="seconds")}
-    with _flags_lock(), _flagged_path().open("a") as f:
-        f.write(json.dumps(item) + "\n")
-    learning.log({"kind": "flag", "note_id": note_id, "feedback": feedback})
-
-
-def list_flagged() -> list[dict]:
-    with _flags_lock():
-        path = _flagged_path()
-        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
-
-
-def has_flagged() -> bool:
-    return bool(list_flagged())
-
-
-def unflag(item: dict) -> None:
-    with _flags_lock():
-        path = _flagged_path()
-        keep = [line for line in path.read_text().splitlines() if line.strip() and json.loads(line) != item]
-        path.write_text("".join(line + "\n" for line in keep))
-
-
-def unflag_note(note_id: int) -> None:
-    """The immediate fix worked, so the next batch has nothing left to do for this note."""
-    for item in list_flagged():
-        if item["note_id"] == note_id:
-            unflag(item)
-
-
-CHANGE_LABELS = {"conversation": "Conversation with AnkiHelper", "fix": "Fixed by AnkiHelper", "edit": "Your own edit", "rule": "Rule update"}
+CHANGE_LABELS = {"conversation": "Conversation with AnkiHelper", "fix": "Fixed by AnkiHelper", "edit": "Your own edit"}
 
 
 def changes(note_id: int) -> list[dict]:
-    """Everything that happened to one note, oldest first, for any card in Anki: conversations, fixes,
-    hand edits and rule updates. Changes AnkiHelper made carry the earlier version so it can be restored."""
+    """Everything that happened to one note, oldest first, for any card in Anki: conversations, fixes and
+    hand edits. Changes AnkiHelper made carry the earlier version so it can be restored."""
     found = []
     for event in learning.events_for(note_id):
         kind = event.get("kind")
@@ -326,19 +215,6 @@ def changes(note_id: int) -> list[dict]:
                 "after": event.get("after") or {},
                 "added_cards": event.get("added_cards") or [],
                 "restore": event.get("before_html"),
-            }
-        )
-    for backup in jobs.backups_for(note_id):
-        values = list(backup["fields"].values())
-        found.append(
-            {
-                "time": backup.get("time", ""),
-                "kind": CHANGE_LABELS["rule"],
-                "said": "; ".join(backup.get("rules") or []),
-                "before": {"question": text_of(values[0]), "answer": text_of(values[1])},
-                "after": {},
-                "added_cards": [],
-                "restore": {"question": values[0], "answer": values[1]},
             }
         )
     return sorted(found, key=lambda c: c["time"])

@@ -20,7 +20,7 @@ BLUE = "#60a5fa"
 
 BLOOM_COLORS = {"remember": BLUE, "understand": CYAN, "apply": GREEN, "analyze": AMBER, "evaluate": PINK, "create": VIOLET}
 AGENT_COLORS = {"claude": "#f97316", "codex": GREEN, "gemini": BLUE, "opencode": "#e2e8f0"}
-PAGE_COLORS = {"capture": PINK, "inbox": AMBER, "setup": GREEN, "settings": CYAN}
+PAGE_COLORS = {"capture": PINK, "inbox": AMBER, "moves": VIOLET, "setup": GREEN, "settings": CYAN}
 
 GRADIENT = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {VIOLET}, stop:1 {PINK})"
 

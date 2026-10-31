@@ -1,18 +1,11 @@
-"""Preview an inbox entry's cards, redo them with feedback, and turn feedback into lasting rules."""
+"""Preview an inbox entry's cards: redo them with feedback, press moves on them, and keep the ones the learner accepts."""
 
 import json
-import re
-import subprocess
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
-from pathlib import Path
 
-from . import agents, batch, config
+from . import agents, batch, config, moves
 from .config import Config
 from .inbox import Entry
-
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-REPO = "da5ater/AnkiHelper"
 
 
 PENDING, ACCEPTED, REMOVED = "pending", "accepted", "removed"
@@ -25,6 +18,8 @@ class Version:
     cards: list[batch.Card]
     added: bool = False
     """Its cards were already added next to the card, so it cannot be added or swapped in again."""
+    move: str = ""
+    """The move that produced it, so the learner's pick can teach that move."""
 
 
 @dataclass
@@ -34,6 +29,12 @@ class Slot:
     card: batch.Card
     status: str = PENDING
     versions: list[Version] = field(default_factory=list)
+    made_by: str = ""
+    """The move whose result this card is; accepting it teaches that move an example."""
+    before: dict | None = None
+    """The card before that move, for the example."""
+    teach: tuple[str, str] | None = None
+    """(move id, the learner's correction) when they changed a move's result: offer to teach the move."""
 
 
 @dataclass
@@ -41,7 +42,7 @@ class Review:
     entry: Entry
     slots: list[Slot] = field(default_factory=list)
     feedback: list[str] = field(default_factory=list)
-    """Everything the learner asked for, in order; the raw material for a personal rule."""
+    """Everything the learner asked for, in order."""
     history: list[list[dict]] = field(default_factory=list)
     """The cards as they were before each change."""
 
@@ -57,6 +58,15 @@ class Review:
                 slot.card.versions = [asdict(v) for v in slot.versions if not v.added]
                 cards.append(slot.card)
         return cards
+
+    def teach_moves(self) -> None:
+        """Every accepted card that came from a move becomes one of that move's examples."""
+        for slot in self.slots:
+            if slot.status == ACCEPTED and slot.made_by and slot.before:
+                try:
+                    moves.record_example(slot.made_by, slot.before, {"question": slot.card.question, "answer": slot.card.answer})
+                except KeyError:
+                    continue
 
     def kept(self) -> list[batch.Card]:
         return [slot.card for slot in self.slots if slot.status != REMOVED]
@@ -105,7 +115,6 @@ def revise(cfg: Config, review: Review, index: int, feedback: str) -> list[batch
     text = agents.prompt(
         "card",
         language=review.entry.language or cfg.language,
-        rules=config.personal_rules() or "(none yet)",
         entry=_entry_json(review.entry),
         card=json.dumps(asdict(target), ensure_ascii=False),
         others=json.dumps(others, ensure_ascii=False),
@@ -117,7 +126,8 @@ def revise(cfg: Config, review: Review, index: int, feedback: str) -> list[batch
         raise agents.AgentError("The agent returned no rewritten card")
     cards = _own(review, [batch.Card.parse(c) for c in raw[:3]])
     review._record(f"card {index + 1} ({target.question}): {feedback}")
-    review.slots[index : index + 1] = [Slot(card) for card in cards]
+    taught = review.slots[index].made_by
+    review.slots[index : index + 1] = [Slot(card, teach=(taught, feedback) if taught else None) for card in cards]
     return cards
 
 
@@ -127,7 +137,6 @@ def versions(cfg: Config, review: Review, index: int) -> list[Version]:
     text = agents.prompt(
         "versions",
         language=review.entry.language or cfg.language,
-        rules=config.personal_rules() or "(none yet)",
         entry=_entry_json(review.entry),
         cards=json.dumps([asdict(slot.card)], ensure_ascii=False),
         others=json.dumps([asdict(c) for i, c in enumerate(review.cards) if i != index], ensure_ascii=False),
@@ -157,73 +166,58 @@ def use_version(review: Review, index: int, version: Version, add: bool) -> None
     becomes an "Original" version so the swap can be undone."""
     slot = review.slots[index]
     review._record(f"card {index + 1} ({slot.card.question}): picked the {version.style} version" + (" in addition" if add else ""))
+    before = {"question": slot.card.question, "answer": slot.card.answer}
     if add:
         version.added = True
-        review.slots[index + 1 : index + 1] = [Slot(card) for card in version.cards]
+        review.slots[index + 1 : index + 1] = [Slot(card, made_by=version.move, before=before) for card in version.cards]
     else:
         others = [v for v in slot.versions if v is not version]
         original = Version("Original", "The card you had before this swap.", [replace(slot.card, versions=[])])
-        new = [Slot(card) for card in version.cards]
+        new = [Slot(card, made_by=version.move, before=before) for card in version.cards]
         new[0].versions = [original, *others]
         review.slots[index : index + 1] = new
 
 
-def suggest_rule(cfg: Config, review: Review) -> str | None:
-    history = "\n\n".join(
-        f"Cards before change {n}:\n{json.dumps(cards, ensure_ascii=False)}\nThen the learner said: {said}"
-        for n, (cards, said) in enumerate(zip(review.history, review.feedback), start=1)
+def apply_move(cfg: Config, review: Review, index: int, move_id: str) -> None:
+    """Press a move on one card of the canvas. A changing move swaps the card (the old one stays as
+    "Original"); an adding move hangs its new cards under the card for the learner to pick."""
+    if move_id == "versions":
+        versions(cfg, review, index)
+        for version in review.slots[index].versions:
+            version.move = move_id
+        moves._change(move_id, lambda m: setattr(m, "uses", m.uses + 1))
+        return
+    slot = review.slots[index]
+    move = moves.get(move_id)
+    before = {"question": slot.card.question, "answer": slot.card.answer}
+    entry = review.entry
+    reply = moves.run(
+        cfg,
+        move_id,
+        before,
+        {"question": entry.question, "answer": entry.answer},
+        [],
+        _read_images(entry),
+        entry.language or cfg.language,
     )
-    history += "\n\nCards the learner accepted:\n" + json.dumps([asdict(c) for c in review.accepted()], ensure_ascii=False)
-    reply = agents.ask(cfg.agent, agents.prompt("rule", entry=_entry_json(review.entry), history=history), timeout=300).strip()
-    rule = reply.splitlines()[-1].strip().strip('"') if reply else ""
-    return None if not rule or rule.upper() == "NONE" else rule
+    review._record(f"card {index + 1} ({slot.card.question}): used the {move.name} move")
+    raw_card = reply.get("card")
+    if move.mode == moves.CHANGE and isinstance(raw_card, dict) and raw_card.get("question") and raw_card.get("answer"):
+        card = batch.Card.parse({**asdict(slot.card), **raw_card, "versions": [], "changed": True})
+        original = Version("Original", "The card before this move.", [replace(slot.card, versions=[])])
+        review.slots[index] = Slot(card, versions=[original, *slot.versions], made_by=move_id, before=before)
+        return
+    new = [
+        batch.Card.parse({**raw, "source_id": entry.id, "changed": True, "group": move_id})
+        for raw in (reply.get("new_cards") or [])[:4]
+        if isinstance(raw, dict) and raw.get("question") and raw.get("answer")
+    ]
+    if not new:
+        raise agents.AgentError(f"The {move.name} move returned nothing usable for this card")
+    slot.versions = [Version(f"{move.icon} {move.name}", str(reply.get("reply") or ""), [card], move=move_id) for card in new] + slot.versions
 
 
-def save_rule(rule: str) -> None:
-    path = config.rules_path()
-    existing = path.read_text().rstrip() + "\n" if path.exists() and path.read_text().strip() else ""
-    path.write_text(existing + f"- {rule.strip()}\n")
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "rule"
-
-
-def pr_command(cfg: Config, rule: str, push: bool = True) -> tuple[list[str], Path]:
-    """Make a fresh worktree from origin/main and return the agent command that edits, tests and opens the PR there."""
-    if not (PROJECT_DIR / ".git").exists():
-        raise agents.AgentError(f"Proposing a PR needs the AnkiHelper git checkout; {PROJECT_DIR} is not one")
-    branch = f"rule/{_slug(rule)}-{datetime.now():%m%d%H%M}"
-    worktree = config.data_dir() / "worktrees" / branch.replace("/", "-")
-    subprocess.run(["git", "-C", str(PROJECT_DIR), "fetch", "-q", "origin", "main"], check=True, timeout=60)
-    subprocess.run(
-        ["git", "-C", str(PROJECT_DIR), "worktree", "add", "-q", "-b", branch, str(worktree), "origin/main"],
-        check=True,
-        timeout=60,
-    )
-    push_step = (
-        f"Push the branch with `git push -u origin {branch}` and open a pull request against {REPO} main with "
-        "`gh pr create --fill`, adding a short body that quotes the rule and says why it makes cards easier to remember."
-        if push
-        else "Do not push and do not open a pull request; this is a dry run."
-    )
-    last_line = "the pull request URL" if push else "the commit hash"
-    text = agents.prompt("pr", branch=branch, rule=rule, push_step=push_step, last_line=last_line)
-    return agents.get(cfg.agent).fix(text), worktree
-
-
-def github_env(cfg: Config) -> dict[str, str]:
-    """GH_TOKEN for the configured account, so gh and git push act as it without changing the active gh login."""
-    done = subprocess.run(
-        ["gh", "auth", "token", "-h", "github.com", "-u", cfg.github_account], capture_output=True, text=True, timeout=15
-    )
-    token = done.stdout.strip()
-    if done.returncode != 0 or not token:
-        raise agents.AgentError(
-            f"gh has no login for {cfg.github_account}; run `gh auth login` and add that account first"
-        )
-    return {"GH_TOKEN": token}
-
-
-def remove_worktree(worktree: Path) -> None:
-    subprocess.run(["git", "-C", str(PROJECT_DIR), "worktree", "remove", "--force", str(worktree)], timeout=60)
+def teach_move(cfg: Config, slot: Slot) -> tuple[str, str]:
+    """Propose the move's instruction with the learner's correction folded in: (old, new)."""
+    move_id, feedback = slot.teach
+    return moves.get(move_id).instruction, moves.teach(cfg, move_id, [{"role": "learner", "text": feedback}])

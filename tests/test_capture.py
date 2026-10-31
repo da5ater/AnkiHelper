@@ -145,30 +145,6 @@ def test_reopening_preview_shows_saved_cards_instead_of_regenerating(window, mon
     assert [(s.card.question, s.status, s.card.bloom) for s in page.review.slots] == [("Saved?", review.ACCEPTED, "apply")]
 
 
-def test_rules_can_be_ticked_deleted_and_applied_together(window, monkeypatch):
-    from PySide6.QtCore import Qt as QtCore
-
-    from ankihelper import config, jobs, review
-
-    for rule in ("Keep examples minimal.", "Ask why, not what.", "No create-level cards."):
-        review.save_rule(rule)
-    settings = window.window_.settings
-    window.window_.go("settings")
-    texts = [settings.rule_list.item(i).text() for i in range(settings.rule_list.count())]
-    assert texts == ["Keep examples minimal.", "Ask why, not what.", "No create-level cards."]
-
-    settings.rule_list.item(2).setCheckState(QtCore.CheckState.Checked)
-    settings._delete_checked()
-    assert config.personal_rules() == "- Keep examples minimal.\n- Ask why, not what."
-
-    started = []
-    monkeypatch.setattr(jobs, "start", lambda cfg, anki, rules, scope: started.append((rules, scope)) or {"queue": []})
-    settings._check_all(True)
-    settings._start_job()
-    QTest.qWait(300)
-    assert started == [(["Keep examples minimal.", "Ask why, not what."], "ankihelper")]
-
-
 def test_an_inbox_entry_can_be_removed_and_brought_back(window):
     main = window.window_
     entry = inbox.Entry.new("what is a gem", "a library", "ruby")

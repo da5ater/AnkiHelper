@@ -78,29 +78,6 @@ def test_kept_cards_are_imported_as_approved_without_asking_the_agent(fake_anki,
     assert [e.id for e in inbox.read_all()] == [other.id], "Import now leaves the other notes waiting"
 
 
-def test_saved_rules_reach_the_card_writing_prompt(monkeypatch):
-    review.save_rule("Prefer why questions over definitions.")
-    review.save_rule("Keep answers to one line.")
-    seen = []
-    entry = inbox.Entry.new("q", "a", "ruby")
-    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: seen.append(text) or reply_with("Q", entry.id))
-
-    batch.clean("claude", [entry], "English")
-
-    assert config.rules_path().read_text() == "- Prefer why questions over definitions.\n- Keep answers to one line.\n"
-    assert "- Prefer why questions over definitions.\n- Keep answers to one line." in seen[0]
-
-
-def test_card_specific_feedback_gives_no_rule(monkeypatch):
-    entry = inbox.Entry.new("q", "a", "ruby")
-    session = _session_with(entry, "one")
-    session._record("the year is wrong")
-    monkeypatch.setattr(agents, "ask", lambda *a, **k: "NONE\n")
-    assert review.suggest_rule(Config(), session) is None
-    monkeypatch.setattr(agents, "ask", lambda *a, **k: "Prefer why questions.\n")
-    assert review.suggest_rule(Config(), session) == "Prefer why questions."
-
-
 def test_versions_belong_to_one_card_and_can_replace_it_or_be_added(monkeypatch):
     entry = inbox.Entry.new("aws security pillar services", "iam, cloudtrail", "DevOps::AWS")
     session = _session_with(entry, "Which service manages access?", "Which service logs API calls?")

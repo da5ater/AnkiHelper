@@ -54,7 +54,7 @@ AnkiHelper also lives inside Anki, so you can work on a card at the moment you m
 
 ### Moves
 
-A move is a one-click thing you keep doing to a card. Five come built in: **✍ Word it better** (changes the card), and **🎬 Make it a scenario**, **⌨ Make me write it**, **✂ Split this** and **✨ Versions** (these add new cards next to the original). You always see the result and decide; nothing runs on many cards at once.
+A move is a one-click thing you keep doing to a card. Six come built in: **✍ Word it better** and **🗣 Say it simply** (rewrites the back in plain words when it is too dense to follow) change the card; **🎬 Make it a scenario**, **⌨ Make me write it**, **✂ Split this** and **✨ Versions** add new cards next to the original. You always see the result and decide; nothing runs on many cards at once.
 
 - Each move remembers the last 3 results you kept and shows them to the agent as examples, so it stays consistent with your taste.
 - Make your own with **⭐ Save as move** in the F window, or teach an existing one with **🎓 Teach the move this?** after you correct its result. Every change to a move can be undone on the Moves page.

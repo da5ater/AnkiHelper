@@ -40,6 +40,7 @@ class Move:
 
 BUILTIN = [
     Move("word", "✍", "Word it better", CHANGE, "Rewrite the question and the answer so they are clear, precise and short. Keep exactly the same meaning, facts and examples; only fix wording, grammar and code formatting.", builtin=True),
+    Move("simple", "🗣", "Say it simply", CHANGE, "Rewrite the answer in plain, everyday words, the way one person explains it to another: short sentences, no jargon, and any technical term the learner needs explained in a few words the first time. Keep the question, every fact, code and example exactly as they are; the answer should not get longer than it needs to be.", builtin=True),
     Move("scenario", "🎬", "Make it a scenario", ADD, "Write a new card that puts this knowledge in a short, realistic situation from an ordinary app and asks what the learner would use or do. The answer is one short, consistent line.", builtin=True),
     Move("write", "⌨", "Make me write it", ADD, "Write a new card that gives the learner a concrete input or surrounding context and asks them to write the exact code, command or output. The answer is exactly that code or output.", builtin=True),
     Move("split", "✂", "Split this", ADD, "Split this card into separate small cards, one per idea or list item, each with a context cue in its question so it makes sense on its own.", builtin=True),
@@ -63,7 +64,9 @@ def _load() -> list[Move]:
     path = _path()
     if not path.exists():
         return [Move(**asdict(m)) for m in BUILTIN]
-    return [Move(**raw) for raw in json.loads(path.read_text())]
+    saved = [Move(**raw) for raw in json.loads(path.read_text())]
+    known = {m.id for m in saved}
+    return saved + [Move(**asdict(m)) for m in BUILTIN if m.id not in known]
 
 
 def _save(moves: list[Move]) -> None:

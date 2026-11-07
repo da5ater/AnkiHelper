@@ -14,10 +14,18 @@ def agent_replying(reply: dict, seen: list | None = None):
     return ask
 
 
-def test_the_five_starting_moves_are_ordered_by_use():
-    assert [m.name for m in moves.ordered()] == ["Word it better", "Make it a scenario", "Make me write it", "Split this", "Versions"]
+def test_the_starting_moves_are_ordered_by_use():
+    assert [m.name for m in moves.ordered()] == ["Word it better", "Say it simply", "Make it a scenario", "Make me write it", "Split this", "Versions"]
     moves._change("split", lambda m: setattr(m, "uses", 3))
     assert moves.ordered()[0].name == "Split this"
+
+
+def test_a_new_built_in_move_reaches_learners_who_already_have_moves():
+    moves._save([m for m in moves._load() if m.id != "simple"])
+    moves._change("word", lambda m: setattr(m, "uses", 4))
+
+    assert moves.get("simple").mode == moves.CHANGE
+    assert moves.get("word").uses == 4
 
 
 def test_a_changing_move_rewrites_the_card_and_counts_a_use(monkeypatch):

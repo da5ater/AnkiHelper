@@ -33,7 +33,7 @@ def test_cli_speaks_json_to_the_addon(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
     assert cli.main(["anki", "moves"]) == 0
     reply = json.loads(capsys.readouterr().out)
-    assert [m["name"] for m in reply["moves"]][:2] == ["Word it better", "Make it a scenario"]
+    assert [m["name"] for m in reply["moves"]][:2] == ["Word it better", "Say it simply"]
 
 
 def test_install_addon_links_it_into_anki_and_is_safe_to_rerun(tmp_path, monkeypatch):

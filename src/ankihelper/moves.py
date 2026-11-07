@@ -21,6 +21,15 @@ EXAMPLES_KEPT = 3
 NUDGE_EVERY = timedelta(days=1)
 NUDGE_MIN_CONVERSATIONS = 3
 
+ANSWER_STYLE = (
+    "Shape every answer so the learner remembers the most important thing and could say it in an interview: "
+    "lead with the main point, and when the answer has more than one point, write \"- \" bullets that each start "
+    "with their key term in **bold**, followed by a short plain explanation, for example "
+    "\"- **Stop guessing capacity**: scale with demand instead of provisioning for a guessed peak.\" "
+    "Bold only that key term, never whole sentences. A one-fact answer stays one line with its key phrase in **bold**. "
+    "Keep code in inline `code` or fenced blocks."
+)
+
 
 @dataclass
 class Move:
@@ -154,6 +163,7 @@ def run(cfg: Config, move_id: str, card: dict, original: dict, messages: list[di
         mode="Rewrite the card itself and return it in \"card\"." if move.mode == CHANGE else "Leave the card alone and return new cards in \"new_cards\" (at most 4).",
         examples="\n".join(json.dumps(e, ensure_ascii=False) for e in move.examples) or "(none yet)",
         language=language,
+        answer_style=ANSWER_STYLE,
         original=json.dumps(original, ensure_ascii=False),
         card=json.dumps(card, ensure_ascii=False),
         messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-20:]) or "(none)",

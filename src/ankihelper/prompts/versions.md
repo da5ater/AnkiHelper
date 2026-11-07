@@ -13,6 +13,8 @@ Propose 3 or 4 alternative VERSIONS of the card below. Each version replaces jus
 
 Every version still follows the card rules: focused, precise, consistent, tractable but effortful, short answers, context cues, no yes/no questions, no "list all N" questions unless asked, never invent facts. Write in {language}; never translate code or technical terms.
 
+{answer_style}
+
 Use Bloom's taxonomy (remember, understand, apply, analyze, evaluate, create) to climb: at least two versions must work at a higher level than the card has now (for example turn a "which service" recall card into an apply scenario or an analyze "what breaks if" card). Label every card with its level in "bloom". Every card still needs one consistent answer.
 
 For each version, write one short sentence on why this strategy could make the card easier to remember or more useful for this learner.

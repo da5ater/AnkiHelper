@@ -137,6 +137,7 @@ def versions(cfg: Config, review: Review, index: int) -> list[Version]:
     text = agents.prompt(
         "versions",
         language=review.entry.language or cfg.language,
+        answer_style=moves.ANSWER_STYLE,
         entry=_entry_json(review.entry),
         cards=json.dumps([asdict(slot.card)], ensure_ascii=False),
         others=json.dumps([asdict(c) for i, c in enumerate(review.cards) if i != index], ensure_ascii=False),

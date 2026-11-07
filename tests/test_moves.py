@@ -36,6 +36,7 @@ def test_a_changing_move_rewrites_the_card_and_counts_a_use(monkeypatch):
 
     assert "has_one" in turn["front"] and "new_cards" not in turn
     assert "Word it better" in seen[0]["text"] and "Rewrite the card itself" in seen[0]["text"]
+    assert "key term in **bold**" in seen[0]["text"]
     assert moves.get("word").uses == 1
 
 

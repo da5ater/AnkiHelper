@@ -17,7 +17,7 @@ Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbo
    Reopening Preview shows the cards you saved instead of writing new ones. Only accepted cards are saved: **Accept all** accepts every card you haven't removed, **Save N** locks in the accepted cards so the batch imports exactly those and takes you back to the Inbox, and **Import** sends them to Anki immediately.
 4. **Setup.** `ankihelper setup` opens the window on the Setup page, a checklist: Anki, AnkiConnect, the root deck, the note type, dictation, the CLI on PATH, the agent and the shortcuts. Fix a problem yourself and press **Recheck**, or press **Fix with agent** to let the selected agent fix it headlessly; the window shows its log and rechecks when it finishes. `ankihelper doctor` prints the same checklist in a terminal.
 5. **Moves.** The Moves page lists every move, most used first, with how often you used it, its instruction (edit and **Save instruction**), the last results you kept, **↶ Undo last change**, and **🗑 Delete** for moves you made. Suggested moves appear at the top.
-6. **Settings.** Pick the agent (Claude, Codex, Gemini, OpenCode), the dictation method (Voxtype, system dictation, keyboard only) and the card language, and set the root deck, note type and AnkiConnect URL. Changes save immediately.
+6. **Settings.** Pick the agent (Claude, Codex, Gemini, OpenCode) and its model, the dictation method (Voxtype, system dictation, keyboard only) and the card language, and set the root deck, note type and AnkiConnect URL. Changes save immediately.
 
 ### What the agent does to a card
 
@@ -97,6 +97,7 @@ The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://anki
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `claude` | `claude`, `codex`, `gemini` or `opencode`. `ankihelper batch --agent codex` overrides it for one run. |
+| `models` | `{}` | The model each agent uses, for example `{"claude": "sonnet"}`; empty means the agent's own default. Set it under Settings → Model. |
 | `language` | `English` | Language cards are written in; Capture can override it per card |
 | `dictation` | `voxtype` on Linux, `system` elsewhere | `voxtype`, `system` or `none` |
 | `anki_url` | `http://127.0.0.1:8765` | AnkiConnect address |

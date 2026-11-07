@@ -143,7 +143,8 @@ class MainWindow(QWidget):
 
     def _settings_changed(self) -> None:
         color = theme.AGENT_COLORS.get(self.cfg.agent, theme.VIOLET)
-        self.agent_pill.setText(f"● {self.cfg.agent}")
+        model = self.cfg.models.get(self.cfg.agent, "")
+        self.agent_pill.setText(f"● {self.cfg.agent}" + (f" · {model}" if model else ""))
         self.agent_pill.setStyleSheet(theme.pill_style(color))
         self.capture.refresh_dictation()
         self.setup.checked_once = False

@@ -133,5 +133,6 @@ def fix_command(cfg: Config, failed: list[tuple[Check, Result]], project: str) -
         root_deck=cfg.root_deck,
         note_type=cfg.note_type,
     )
-    return agents.get(cfg.agent).fix(text)
+    agent = agents.get(cfg.agent)
+    return agent.with_model(agent.fix(text), cfg.models.get(cfg.agent, ""))
 

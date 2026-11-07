@@ -33,6 +33,13 @@ class Agent:
     fix: Callable[[str], list[str]]
     """Command that may run shell commands without asking (setup fixes)."""
     text_env: dict[str, str] = field(default_factory=dict)
+    model_at: int = 1
+    """Where "--model <name>" goes in the command, after any subcommand such as `exec` or `run`."""
+    models: tuple[str, ...] = ()
+    """Model names offered in Settings; any other name the CLI accepts works too."""
+
+    def with_model(self, command: list[str], model: str) -> list[str]:
+        return command[: self.model_at] + ["--model", model] + command[self.model_at :] if model else command
 
 
 AGENTS: dict[str, Agent] = {
@@ -45,6 +52,7 @@ AGENTS: dict[str, Agent] = {
             if not images
             else ["claude", "-p", "--tools", "Read", "--allowedTools", "Read", *_add_dirs(images)],
             fix=lambda p: ["claude", "-p", "--dangerously-skip-permissions", p],
+            models=("sonnet", "opus", "haiku"),
         ),
         Agent(
             "codex",
@@ -59,12 +67,14 @@ AGENTS: dict[str, Agent] = {
                 "-",
             ],
             fix=lambda p: ["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", p],
+            model_at=2,
         ),
         Agent(
             "gemini",
             "gemini",
             text=lambda images: ["gemini", "--approval-mode", "default", *_include_dirs(images), "-p", ""],
             fix=lambda p: ["gemini", "--yolo", "-p", p],
+            models=("gemini-2.5-pro", "gemini-2.5-flash"),
         ),
         Agent(
             "opencode",
@@ -72,6 +82,7 @@ AGENTS: dict[str, Agent] = {
             text=lambda images: ["opencode", "run", *[arg for image in images for arg in ("-f", image)]],
             fix=lambda p: ["opencode", "run", p],
             text_env={"OPENCODE_CONFIG_CONTENT": NO_TOOLS_OPENCODE},
+            model_at=2,
         ),
     ]
 }
@@ -93,13 +104,20 @@ def prompt(name: str, **values: str) -> str:
     return pattern.sub(lambda m: values[m.group(0)[1:-1]], text)
 
 
+def chosen_model(name: str) -> str:
+    """The model picked for this agent in Settings; empty means the CLI's own default."""
+    from .config import Config
+
+    return Config.load().models.get(name, "")
+
+
 def ask(name: str, prompt_text: str, timeout: float = 600, images: list[str] | None = None) -> str:
     agent = get(name)
     if not installed(name):
         raise AgentError(f"{agent.binary} is not installed")
     try:
         done = subprocess.run(
-            agent.text(images or []),
+            agent.with_model(agent.text(images or []), chosen_model(name)),
             input=prompt_text,
             capture_output=True,
             text=True,

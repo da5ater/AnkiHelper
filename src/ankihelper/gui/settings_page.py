@@ -1,5 +1,5 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QFormLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QComboBox, QFormLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from .. import agents, dictation
 from ..config import Config
@@ -49,6 +49,17 @@ class SettingsPage(Page):
             self._set_agent,
         )
         layout.addLayout(agent_grid)
+        model_row = QFormLayout()
+        self.model = QComboBox()
+        self.model.setEditable(True)
+        self.model.lineEdit().setPlaceholderText("The agent's own default")
+        self.model.activated.connect(lambda _: self._set_model(self.model.currentText()))
+        self.model.lineEdit().editingFinished.connect(lambda: self._set_model(self.model.currentText()))
+        model_row.addRow(label("Model", "muted"), self.model)
+        layout.addLayout(model_row)
+        self.model_hint = label("", "faint", wrap=True)
+        layout.addWidget(self.model_hint)
+        self._show_model()
 
         layout.addSpacing(8)
         layout.addWidget(label("Dictation", "sectionTitle"))
@@ -103,7 +114,28 @@ class SettingsPage(Page):
     def _set_agent(self, name: str) -> None:
         self.cfg.agent = name
         self.cfg.save()
+        self._show_model()
         self.changed.emit()
+
+    def _show_model(self) -> None:
+        agent = agents.get(self.cfg.agent)
+        self.model.blockSignals(True)
+        self.model.clear()
+        self.model.addItems(["", *agent.models])
+        self.model.setCurrentText(self.cfg.models.get(agent.name, ""))
+        self.model.blockSignals(False)
+        examples = {"codex": "for example gpt-5", "opencode": "as provider/model, for example anthropic/claude-sonnet-4-5"}
+        self.model_hint.setText(
+            f"Used for everything {agent.name.capitalize()} does here. Leave it empty for its own default"
+            + (f", or type any model it accepts ({examples[agent.name]})." if agent.name in examples else ", or type any model it accepts.")
+        )
+
+    def _set_model(self, model: str) -> None:
+        model = model.strip()
+        if self.cfg.models.get(self.cfg.agent, "") != model:
+            self.cfg.models = {**self.cfg.models, self.cfg.agent: model}
+            self.cfg.save()
+            self.changed.emit()
 
     def _set_dictation(self, method: str) -> None:
         self.cfg.dictation = method

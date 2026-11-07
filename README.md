@@ -97,7 +97,7 @@ The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://anki
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `claude` | `claude`, `codex`, `gemini` or `opencode`. `ankihelper batch --agent codex` overrides it for one run. |
-| `models` | `{}` | The model each agent uses, for example `{"claude": "sonnet"}`; empty means the agent's own default. Set it under Settings → Model. |
+| `models` | `{}` | The model each agent uses, for example `{"claude": "sonnet"}`; empty means the agent's own default. Pick it from the list under Settings → Model. |
 | `language` | `English` | Language cards are written in; Capture can override it per card |
 | `dictation` | `voxtype` on Linux, `system` elsewhere | `voxtype`, `system` or `none` |
 | `anki_url` | `http://127.0.0.1:8765` | AnkiConnect address |

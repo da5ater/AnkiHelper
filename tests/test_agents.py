@@ -37,3 +37,16 @@ def test_no_model_picked_leaves_the_agents_own_default(monkeypatch):
     agents.ask("claude", "hi")
 
     assert "--model" not in seen[0]
+
+
+def test_each_agent_offers_a_list_of_models(monkeypatch, tmp_path):
+    monkeypatch.setattr(agents.Path, "home", lambda: tmp_path)
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "models_cache.json").write_text(
+        '{"models": [{"slug": "gpt-a", "display_name": "GPT A", "visibility": "list"}, {"slug": "hidden", "visibility": "hide"}]}'
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="opencode/free\nanthropic/sonnet\n", stderr=""))
+
+    assert [n for n, _ in agents.get("claude").models()] == ["opus", "sonnet", "haiku"]
+    assert agents.get("codex").models() == [("gpt-a", "GPT A")]
+    assert [n for n, _ in agents.get("opencode").models()] == ["opencode/free", "anthropic/sonnet"]

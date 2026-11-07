@@ -51,10 +51,9 @@ class SettingsPage(Page):
         layout.addLayout(agent_grid)
         model_row = QFormLayout()
         self.model = QComboBox()
-        self.model.setEditable(True)
-        self.model.lineEdit().setPlaceholderText("The agent's own default")
-        self.model.activated.connect(lambda _: self._set_model(self.model.currentText()))
-        self.model.lineEdit().editingFinished.connect(lambda: self._set_model(self.model.currentText()))
+        self.model.setMaxVisibleItems(15)
+        self.model.activated.connect(lambda _: self._set_model(self.model.currentData()))
+        self._model_lists: dict[str, list[tuple[str, str]]] = {}
         model_row.addRow(label("Model", "muted"), self.model)
         layout.addLayout(model_row)
         self.model_hint = label("", "faint", wrap=True)
@@ -119,16 +118,19 @@ class SettingsPage(Page):
 
     def _show_model(self) -> None:
         agent = agents.get(self.cfg.agent)
+        if agent.name not in self._model_lists:
+            self._model_lists[agent.name] = agent.models() if agents.installed(agent.name) else []
+        current = self.cfg.models.get(agent.name, "")
+        choices = [("", f"Default ({agent.name.capitalize()}'s own setting)"), *self._model_lists[agent.name]]
+        if current and current not in {name for name, _ in choices}:
+            choices.append((current, current))
         self.model.blockSignals(True)
         self.model.clear()
-        self.model.addItems(["", *agent.models])
-        self.model.setCurrentText(self.cfg.models.get(agent.name, ""))
+        for name, title in choices:
+            self.model.addItem(title if title == name or not name else f"{title}  ·  {name}", name)
+        self.model.setCurrentIndex(self.model.findData(current))
         self.model.blockSignals(False)
-        examples = {"codex": "for example gpt-5", "opencode": "as provider/model, for example anthropic/claude-sonnet-4-5"}
-        self.model_hint.setText(
-            f"Used for everything {agent.name.capitalize()} does here. Leave it empty for its own default"
-            + (f", or type any model it accepts ({examples[agent.name]})." if agent.name in examples else ", or type any model it accepts.")
-        )
+        self.model_hint.setText(f"Used for everything {agent.name.capitalize()} does here: batches, moves and the F window in Anki.")
 
     def _set_model(self, model: str) -> None:
         model = model.strip()

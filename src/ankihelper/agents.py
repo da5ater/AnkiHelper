@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from importlib import resources
+from pathlib import Path
 from typing import Callable
 
 
@@ -18,6 +19,24 @@ def _add_dirs(images: list[str]) -> list[str]:
 
 def _include_dirs(images: list[str]) -> list[str]:
     return [arg for folder in sorted({os.path.dirname(i) for i in images}) for arg in ("--include-directories", folder)]
+
+
+def _codex_models() -> list[tuple[str, str]]:
+    """The models Codex lists in its own picker, from the catalog it caches after signing in."""
+    try:
+        catalog = json.loads((Path.home() / ".codex" / "models_cache.json").read_text())
+    except (OSError, ValueError):
+        return []
+    return [(m["slug"], m.get("display_name") or m["slug"]) for m in catalog.get("models", []) if m.get("visibility") == "list" and m.get("slug")]
+
+
+def _opencode_models() -> list[tuple[str, str]]:
+    """Every provider/model OpenCode can use with the providers you set up."""
+    try:
+        done = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [(line, line) for line in done.stdout.split() if "/" in line]
 
 
 NO_TOOLS_OPENCODE = json.dumps({"permission": {"edit": "deny", "bash": "deny", "webfetch": "deny"}})
@@ -35,8 +54,8 @@ class Agent:
     text_env: dict[str, str] = field(default_factory=dict)
     model_at: int = 1
     """Where "--model <name>" goes in the command, after any subcommand such as `exec` or `run`."""
-    models: tuple[str, ...] = ()
-    """Model names offered in Settings; any other name the CLI accepts works too."""
+    models: Callable[[], list[tuple[str, str]]] = lambda: []
+    """The models this agent offers, as (name passed to --model, label), read from the CLI when it can tell us."""
 
     def with_model(self, command: list[str], model: str) -> list[str]:
         return command[: self.model_at] + ["--model", model] + command[self.model_at :] if model else command
@@ -52,7 +71,7 @@ AGENTS: dict[str, Agent] = {
             if not images
             else ["claude", "-p", "--tools", "Read", "--allowedTools", "Read", *_add_dirs(images)],
             fix=lambda p: ["claude", "-p", "--dangerously-skip-permissions", p],
-            models=("sonnet", "opus", "haiku"),
+            models=lambda: [("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")],
         ),
         Agent(
             "codex",
@@ -68,13 +87,14 @@ AGENTS: dict[str, Agent] = {
             ],
             fix=lambda p: ["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", p],
             model_at=2,
+            models=lambda: _codex_models(),
         ),
         Agent(
             "gemini",
             "gemini",
             text=lambda images: ["gemini", "--approval-mode", "default", *_include_dirs(images), "-p", ""],
             fix=lambda p: ["gemini", "--yolo", "-p", p],
-            models=("gemini-2.5-pro", "gemini-2.5-flash"),
+            models=lambda: [("auto", "Auto"), ("pro", "Pro"), ("flash", "Flash"), ("flash-lite", "Flash Lite")],
         ),
         Agent(
             "opencode",
@@ -83,6 +103,7 @@ AGENTS: dict[str, Agent] = {
             fix=lambda p: ["opencode", "run", p],
             text_env={"OPENCODE_CONFIG_CONTENT": NO_TOOLS_OPENCODE},
             model_at=2,
+            models=lambda: _opencode_models(),
         ),
     ]
 }

@@ -193,3 +193,24 @@ def test_preview_shows_pictures_from_a_media_folder_with_backslashes(window, mon
     label = review_page._rich('<p>Q</p><img src="ankihelper-q.png">')
 
     assert 'src="file://' in label.text() and label.text().endswith('ankihelper-q.png">')
+
+
+def test_mic_button_puts_the_spoken_text_where_the_cursor_is(window, monkeypatch):
+    from ankihelper import dictation
+
+    calls = []
+    engine = dictation.Method("fake", "Fake", "", state=lambda: "recording", toggle=lambda: calls.append("toggle"), finish=lambda: "spoken answer")
+    window.engine = engine
+    window._poll_mic()
+    window.answer.setPlainText("Rails: ")
+    window.answer.setFocus()
+    window.answer.moveCursor(window.answer.textCursor().MoveOperation.End)
+
+    window._toggle_mic()
+    for _ in range(100):
+        if "spoken" in window.answer.toPlainText():
+            break
+        QTest.qWait(30)
+
+    assert window.answer.toPlainText() == "Rails: spoken answer"
+    assert window.question.toPlainText() == "" and calls == []

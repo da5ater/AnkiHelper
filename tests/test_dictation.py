@@ -20,7 +20,7 @@ def fake_hex(tmp_path, monkeypatch):
                 return
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             hex_state["commands"].append(body)
-            reply = hex_state["status"] if body["command"] == "status" else {"changed": True}
+            reply = hex_state["status"] if body["command"] == "status" else hex_state.get("reply", {"changed": True})
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps(reply).encode())
@@ -60,3 +60,12 @@ def test_hex_not_running_disables_the_mic(tmp_path, monkeypatch):
     monkeypatch.setattr(dictation, "_hex_dir", lambda: tmp_path)
     assert dictation.get("hex").state() is None
     assert dictation.status("hex")[0] is False
+
+
+def test_finishing_hex_returns_the_transcript_instead_of_pasting(fake_hex):
+    fake_hex["reply"] = {"version": 4, "status": "transcript", "text": "What does belongs_to do?"}
+    assert dictation.get("hex").finish() == "What does belongs_to do?"
+    assert fake_hex["commands"][-1] == {"version": 4, "command": "dictation", "action": "stop", "print": True}
+
+    fake_hex["reply"] = {"version": 4, "status": "error", "code": "no-speech", "message": "no speech"}
+    assert dictation.get("hex").finish() == ""

@@ -22,6 +22,9 @@ class Method:
     state: Callable[[], MicState | None] | None = None
     """For engines the capture window's mic button drives; None when the engine is not answering."""
     toggle: Callable[[], None] | None = None
+    finish: Callable[[], str] | None = None
+    """Stops a running recording and returns its text, so the mic button inserts it itself instead of
+    relying on the engine's simulated paste, which Windows drops when focus is anywhere unexpected."""
 
 
 def voxtype_state() -> MicState | None:
@@ -45,7 +48,7 @@ def _hex_dir() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "hex"
 
 
-def hex_control(command: str, **fields) -> dict | None:
+def hex_control(command: str, timeout: float = 2, **fields) -> dict | None:
     """One command to the running Hex over its local API; None when Hex is not running or not answering."""
     try:
         api = json.loads((_hex_dir() / "local-api.json").read_text(encoding="utf-8"))
@@ -54,7 +57,7 @@ def hex_control(command: str, **fields) -> dict | None:
             data=json.dumps({"version": 4, "command": command, **fields}).encode(),
             headers={"Authorization": f"Bearer {api['token']}", "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(request, timeout=2) as reply:
+        with urllib.request.urlopen(request, timeout=timeout) as reply:
             return json.loads(reply.read())
     except (OSError, ValueError, KeyError):
         return None
@@ -74,6 +77,17 @@ def toggle_hex() -> None:
     hex_control("dictation", action="toggle")
 
 
+def finish_hex() -> str:
+    reply = hex_control("dictation", timeout=70, action="stop", print=True)
+    if reply is None:
+        raise RuntimeError("Hex stopped answering")
+    if reply.get("status") == "transcript":
+        return reply.get("text", "")
+    if reply.get("code") == "no-speech":
+        return ""
+    raise RuntimeError(reply.get("message") or f"Hex answered {reply}")
+
+
 METHODS = [
     Method(
         "hex",
@@ -81,6 +95,7 @@ METHODS = [
         "Local AI dictation from the OpenCode team, on Linux, macOS and Windows. Hold Ctrl+Space anywhere, or use the mic button.",
         hex_state,
         toggle_hex,
+        finish_hex,
     ),
     Method("voxtype", "Voxtype", "Local speech-to-text on Linux. The mic button in the capture window starts and stops it.", voxtype_state, toggle_voxtype),
     Method("system", "System dictation", platform.SYSTEM_DICTATION or "Your OS has no built-in dictation AnkiHelper knows about."),

@@ -7,6 +7,7 @@ from ..anki import AnkiConnect, AnkiError, AnkiUnreachable
 from ..config import Config
 from . import theme
 from .common import ImageStrip, Page, TextBox, label, language_box, restyle
+from .worker import run_async
 
 MIC_ICONS = {"idle": "🎙", "recording": "⏺", "transcribing": "✍"}
 
@@ -118,7 +119,11 @@ class CapturePage(Page):
             self.mic_timer.stop()
 
     def _toggle_mic(self) -> None:
-        self.engine.toggle()
+        if self.engine.finish and self.mic.property("state") == "recording":
+            field = self.answer if self.answer.hasFocus() else self.question
+            run_async(self.engine.finish, lambda text: field.insertPlainText(text), lambda error: self._flash(error, theme.RED, field))
+        else:
+            self.engine.toggle()
         QTimer.singleShot(150, self._poll_mic)
 
     def _poll_mic(self) -> None:

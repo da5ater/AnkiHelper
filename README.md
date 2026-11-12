@@ -6,8 +6,8 @@ Make Anki cards while you study without leaving what you're doing. Press a short
 
 Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbox (with Preview), Setup and Settings.
 
-1. **Capture.** `Super+Alt+A` runs `ankihelper capture`, which opens the window on the Capture page: Question, Answer and Topic. Dictate with the mic button (it starts and stops Voxtype), your OS dictation, or paste. Ctrl+V or drag-and-drop a picture (a screenshot, an image copied from a browser, or an image file) into Question or Answer. Each thumbnail has a toggle: **🖼 Show** puts the picture on the card as a visual, **📖 Read** means the picture *is* the content (say a quiz question screenshotted from an article) and the agent reads it and writes the card from it. A picture pasted into an empty Question defaults to Read; everything else defaults to Show. Tab moves between fields, Ctrl+Enter saves and closes, Esc closes. Topic autocompletes from the subdecks of your `manual` deck and shows the deck the card will land in. Each card is one line in `~/.local/share/ankihelper/inbox.jsonl`. Run `ankihelper capture --stay` to keep the window open between cards.
-2. **Inbox and batch.** The Inbox page lists waiting cards, each with **👁 Preview** and **🗑 Remove** (Undo brings a removed entry back; Preview has the same Remove), and has a **Process batch** button. `Super+Alt+B` runs `ankihelper batch` without opening the window. It opens Anki if needed and sends the inbox to your agent on stdin, 20 entries per call. The agent returns cleaned cards as JSON. It runs without write access: Claude with no tools, Codex in its read-only sandbox, OpenCode with edit, bash and web access denied, and Gemini in default approval mode, which refuses tools that need confirmation. AnkiHelper then renders the cards (code highlighted with Pygments, monokai) and adds them to `manual::<topic>` with the `Basic+` note type, tagged `manual_voice` plus topic tags. Show pictures are uploaded to Anki's media folder and shown under the question or answer; the agent is told they exist but never sees them. Read pictures are handed to the agent as read-only files (Claude gets only its Read tool, Codex and OpenCode get them attached, Gemini gets read access to the media folder), and the original is kept small under "Source" at the bottom of the answer. It syncs to AnkiWeb and sends a notification with the result.
+1. **Capture.** `Super+Alt+A` (`Ctrl+Alt+A` on Windows) runs `ankihelper capture`, which opens the window on the Capture page: Question, Answer and Topic. Dictate with the mic button (it starts and stops Voxtype), your OS dictation, or paste. Ctrl+V or drag-and-drop a picture (a screenshot, an image copied from a browser, or an image file) into Question or Answer. Each thumbnail has a toggle: **🖼 Show** puts the picture on the card as a visual, **📖 Read** means the picture *is* the content (say a quiz question screenshotted from an article) and the agent reads it and writes the card from it. A picture pasted into an empty Question defaults to Read; everything else defaults to Show. Tab moves between fields, Ctrl+Enter saves and closes, Esc closes. Topic autocompletes from the subdecks of your `manual` deck and shows the deck the card will land in. Each card is one line in `inbox.jsonl` in AnkiHelper's data folder (`~/.local/share/ankihelper` on Linux, `%LOCALAPPDATA%\ankihelper` on Windows). Run `ankihelper capture --stay` to keep the window open between cards.
+2. **Inbox and batch.** The Inbox page lists waiting cards, each with **👁 Preview** and **🗑 Remove** (Undo brings a removed entry back; Preview has the same Remove), and has a **Process batch** button. `Super+Alt+B` (`Ctrl+Alt+B` on Windows) runs `ankihelper batch` without opening the window. It opens Anki if needed and sends the inbox to your agent on stdin, 20 entries per call. The agent returns cleaned cards as JSON. It runs without write access: Claude with no tools, Codex in its read-only sandbox, OpenCode with edit, bash and web access denied, and Gemini in default approval mode, which refuses tools that need confirmation. AnkiHelper then renders the cards (code highlighted with Pygments, monokai) and adds them to `manual::<topic>` with the `Basic+` note type, tagged `manual_voice` plus topic tags. Show pictures are uploaded to Anki's media folder and shown under the question or answer; the agent is told they exist but never sees them. Read pictures are handed to the agent as read-only files (Claude gets only its Read tool, Codex and OpenCode get them attached, Gemini gets read access to the media folder), and the original is kept small under "Source" at the bottom of the answer. It syncs to AnkiWeb and sends a notification with the result.
 3. **Preview canvas.** Every Inbox card has a **👁 Preview** button. It opens a scrollable canvas: your note at the top, and each card the agent writes hanging off it as its own node with a clear **FRONT** and **BACK**. On each card:
    - **✓ Accept** marks it good, **✕ Remove** leaves it out (with Undo).
    - **Moves**: your three most used moves are one click away, the rest are under **More ▾** (see *Moves* below). **✎ Change it in my own words…** in that menu rewrites just that card from your instruction ("add bold signaling and why for each one").
@@ -76,7 +76,9 @@ Every card AnkiHelper makes is tagged so a whole note's cards stay findable toge
 
 ## Install
 
-Requires [uv](https://docs.astral.sh/uv/), Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on, and at least one agent CLI.
+You need [uv](https://docs.astral.sh/uv/), Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on (Tools → Add-ons → Get Add-ons, code `2055492159`), and at least one agent CLI signed in, such as [Claude Code](https://claude.com/claude-code). Pick your system below.
+
+### Linux
 
 ```bash
 git clone https://github.com/da5ater/AnkiHelper.git
@@ -86,13 +88,38 @@ ankihelper install-addon
 ankihelper setup
 ```
 
-The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://ankiweb.net/shared/info/1704420850). In Anki, Tools → Add-ons → Get Add-ons, code `1704420850`. Install it from there **or** with `ankihelper install-addon`, not both.
+`ankihelper install-addon` links the add-on into `~/.local/share/Anki2/addons21/ankihelper` and records where the `ankihelper` command lives, since Anki starts without your shell's PATH. On Hyprland, Setup's "Fix with agent" binds `Super+Alt+A` (capture) and `Super+Alt+B` (batch); on other desktops, bind `ankihelper capture` and `ankihelper batch` in your shortcut settings.
 
-`ankihelper install-addon` links the add-on into Anki's add-ons folder (`~/.local/share/Anki2/addons21/ankihelper` on Linux; it copies on Windows) and records where the `ankihelper` command lives, since Anki starts without your shell's PATH. Restart Anki afterwards; Tools → AnkiHelper confirms it loaded. Setup checks for it too, and tells you what else is missing; "Fix with agent" can install the shortcuts and create the deck or note type for you.
+### Windows
+
+In PowerShell:
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+irm https://claude.ai/install.ps1 | iex
+claude
+```
+
+The last line signs Claude Code in once; type `/exit` when it's done. Open a new PowerShell window so `uv` and `claude` are on PATH, then:
+
+```powershell
+git clone https://github.com/da5ater/AnkiHelper.git
+cd AnkiHelper
+uv sync
+uv run python -m ankihelper install-addon
+uv run python -m ankihelper install-shortcuts
+uv run python -m ankihelper setup
+```
+
+`install-addon` copies the add-on into `%APPDATA%\Anki2\addons21\ankihelper`. `install-shortcuts` adds two Start-menu shortcuts with hotkeys: `Ctrl+Alt+A` captures a card and `Ctrl+Alt+B` runs the batch. Dictation uses Windows voice typing (`Win+H` in a field). Both the add-on and the shortcuts start AnkiHelper with the project's own Python, so they keep working on company laptops whose Application Control blocks the `ankihelper.exe` launcher. For the same reason, run commands as `uv run python -m ankihelper <command>` instead of `ankihelper <command>`. After `git pull`, run `uv sync` and `install-addon` again, because Windows gets a copy of the add-on, not a link.
+
+### Both
+
+Restart Anki after installing the add-on; Tools → AnkiHelper confirms it loaded. The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://ankiweb.net/shared/info/1704420850), code `1704420850`. Install it from there **or** with `install-addon`, not both. Setup checks everything and tells you what's missing; "Fix with agent" can create the deck and note type for you.
 
 ## Configuration
 
-`~/.local/share/ankihelper/config.json` (also editable on the Settings page):
+`config.json` in the data folder, `~/.local/share/ankihelper` on Linux and `%LOCALAPPDATA%\ankihelper` on Windows (also editable on the Settings page):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -106,7 +133,7 @@ The add-on is also on AnkiWeb: [ankiweb.net/shared/info/1704420850](https://anki
 
 ## Platforms
 
-Linux (Hyprland) is supported today. macOS and Windows have their own modules in `src/ankihelper/platforms/` for launching Anki, notifications, dictation and shortcuts. They are written but not yet tested.
+Linux (Hyprland) and Windows are supported and tested. macOS has its own module in `src/ankihelper/platforms/` for launching Anki, notifications, dictation and shortcuts, written but not yet tested.
 
 ## Development
 

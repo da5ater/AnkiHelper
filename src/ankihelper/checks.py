@@ -1,4 +1,5 @@
 import shutil
+import sys
 from dataclasses import dataclass
 from typing import Callable
 
@@ -65,6 +66,8 @@ def _dictation(cfg: Config) -> Result:
 
 
 def _on_path(cfg: Config) -> Result:
+    if sys.platform == "win32":
+        return Result(True, "Anki and the shortcuts start it as " + " ".join(platform.ankihelper_command()))
     path = shutil.which("ankihelper")
     if path:
         return Result(True, path)
@@ -134,5 +137,5 @@ def fix_command(cfg: Config, failed: list[tuple[Check, Result]], project: str) -
         note_type=cfg.note_type,
     )
     agent = agents.get(cfg.agent)
-    return agent.with_model(agent.fix(text), cfg.models.get(cfg.agent, ""))
+    return agents.resolved(agent.with_model(agent.fix(text), cfg.models.get(cfg.agent, "")))
 

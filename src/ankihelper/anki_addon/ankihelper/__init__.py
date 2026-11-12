@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from html import unescape
 from pathlib import Path
@@ -41,6 +42,7 @@ from aqt.utils import showWarning, tooltip
 
 ADDON_DIR = Path(__file__).parent
 CLOZE = 1
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 _writing: set[int] = set()
 """Notes AnkiHelper is saving right now, so the edit watcher does not report them as the learner's edits."""
 
@@ -48,7 +50,7 @@ _writing: set[int] = set()
 def _command() -> list[str]:
     config_file = ADDON_DIR / "user_files" / "cli.json"
     if config_file.exists():
-        return json.loads(config_file.read_text())["command"]
+        return json.loads(config_file.read_text(encoding="utf-8"))["command"]
     found = shutil.which("ankihelper") or str(Path.home() / ".local" / "bin" / "ankihelper")
     return [found]
 
@@ -59,6 +61,7 @@ def _clean_env() -> dict[str, str]:
     for key in list(env):
         if key in ("PYTHONPATH", "PYTHONHOME", "PYTHONSAFEPATH") or key.startswith("QT_") or key.startswith("QML"):
             env.pop(key)
+    env["PYTHONUTF8"] = "1"
     return env
 
 
@@ -85,8 +88,11 @@ def _subprocess(action: str, payload: dict):
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=900,
         env=_clean_env(),
+        creationflags=NO_WINDOW,
     )
 
 
@@ -893,7 +899,7 @@ def _context_menu(reviewer, menu: QMenu) -> None:
 
 def _detached(*args: str) -> None:
     try:
-        subprocess.Popen([*_command(), *args], env=_clean_env(), start_new_session=True)
+        subprocess.Popen([*_command(), *args], env=_clean_env(), start_new_session=True, creationflags=NO_WINDOW)
     except FileNotFoundError:
         showWarning(NOT_INSTALLED)
 

@@ -36,12 +36,13 @@ def test_cli_speaks_json_to_the_addon(monkeypatch, capsys):
     assert [m["name"] for m in reply["moves"]][:2] == ["Word it better", "Say it simply"]
 
 
-def test_install_addon_links_it_into_anki_and_is_safe_to_rerun(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
-    first = addon.install()
-    target = tmp_path / "share" / "Anki2" / "addons21" / "ankihelper"
-    assert target.is_symlink() and (target / "__init__.py").exists()
-    assert "Installed" in first and "Already installed" in addon.install()
+def test_install_addon_puts_it_into_anki_and_is_safe_to_rerun(tmp_path, monkeypatch):
+    monkeypatch.setattr(addon, "addons_dir", lambda: tmp_path / "addons21")
+    target = tmp_path / "addons21" / "ankihelper"
+    assert "Installed" in addon.install()
+    assert (target / "__init__.py").exists()
+    addon.install()
+    assert (target / "__init__.py").exists()
     assert json.loads((target / "user_files" / "cli.json").read_text())["command"]
 
 

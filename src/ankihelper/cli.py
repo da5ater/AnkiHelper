@@ -56,6 +56,7 @@ def _in_background(*args: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        creationflags=platform.NO_WINDOW,
     )
 
 
@@ -139,6 +140,11 @@ def cmd_install_addon(args) -> int:
     return 0
 
 
+def cmd_install_shortcuts(args) -> int:
+    print(platform.install_shortcuts())
+    return 0
+
+
 def cmd_doctor(args) -> int:
     cfg = Config.load()
     results = checks.run_all(cfg)
@@ -185,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     anki_parser.set_defaults(func=cmd_anki)
     sub.add_parser("moves-nudge", help="suggest moves from requests you keep making in conversations").set_defaults(func=cmd_moves_nudge)
     sub.add_parser("install-addon", help="install the AnkiHelper add-on into Anki").set_defaults(func=cmd_install_addon)
+    sub.add_parser("install-shortcuts", help="add the capture and batch shortcuts (Windows; elsewhere prints how)").set_defaults(func=cmd_install_shortcuts)
     args = parser.parse_args(argv)
     if not args.command:
         return gui_page("capture")

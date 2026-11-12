@@ -7,6 +7,7 @@ import sys
 
 SYSTEM_DICTATION: str | None = None
 NAME = "Linux"
+NO_WINDOW = 0
 CAPTURE_KEYS = "SUPER + ALT + A"
 BATCH_KEYS = "SUPER + ALT + B"
 
@@ -68,3 +69,7 @@ def keybind_fix_hint() -> str:
         "Check the keys are free with `hyprctl binds -j` first; reload with `hyprctl reload` and confirm "
         "the binds appear in `hyprctl binds -j`."
     )
+
+
+def install_shortcuts() -> str:
+    return keybind_fix_hint()

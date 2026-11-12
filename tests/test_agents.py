@@ -12,8 +12,18 @@ def commands_run(monkeypatch) -> list[list[str]]:
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(agents, "installed", lambda name: True)
+    monkeypatch.setattr(agents.shutil, "which", lambda name: None)
     monkeypatch.setattr(subprocess, "run", run)
     return seen
+
+
+def test_agents_start_from_their_full_path_so_windows_runs_npm_shims(monkeypatch):
+    seen = commands_run(monkeypatch)
+    monkeypatch.setattr(agents.shutil, "which", lambda name: rf"C:\npm\{name}.cmd")
+
+    agents.ask("codex", "hi")
+
+    assert seen[0][:2] == [r"C:\npm\codex.cmd", "exec"]
 
 
 def test_the_model_picked_in_settings_reaches_every_agent(monkeypatch):

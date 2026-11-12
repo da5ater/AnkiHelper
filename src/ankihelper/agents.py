@@ -8,6 +8,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Callable
 
+from .platforms import current as platform
+
 
 class AgentError(Exception):
     pass
@@ -33,7 +35,7 @@ def _codex_models() -> list[tuple[str, str]]:
 def _opencode_models() -> list[tuple[str, str]]:
     """Every provider/model OpenCode can use with the providers you set up."""
     try:
-        done = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=30)
+        done = subprocess.run(resolved(["opencode", "models"]), capture_output=True, text=True, timeout=30, creationflags=platform.NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired):
         return []
     return [(line, line) for line in done.stdout.split() if "/" in line]
@@ -119,6 +121,11 @@ def installed(name: str) -> bool:
     return shutil.which(get(name).binary) is not None
 
 
+def resolved(command: list[str]) -> list[str]:
+    """The command with its program as a full path, which Windows needs to start an npm `.cmd` shim."""
+    return [shutil.which(command[0]) or command[0], *command[1:]]
+
+
 def prompt(name: str, **values: str) -> str:
     text = resources.files("ankihelper.prompts").joinpath(f"{name}.md").read_text()
     pattern = re.compile("|".join(re.escape("{" + key + "}") for key in values))
@@ -138,12 +145,15 @@ def ask(name: str, prompt_text: str, timeout: float = 600, images: list[str] | N
         raise AgentError(f"{agent.binary} is not installed")
     try:
         done = subprocess.run(
-            agent.with_model(agent.text(images or []), chosen_model(name)),
+            resolved(agent.with_model(agent.text(images or []), chosen_model(name))),
             input=prompt_text,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             env={**os.environ, **agent.text_env},
+            creationflags=platform.NO_WINDOW,
         )
     except subprocess.TimeoutExpired as e:
         raise AgentError(f"{name} did not answer within {timeout:.0f}s") from e

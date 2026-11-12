@@ -316,7 +316,7 @@ def test_read_pictures_go_to_the_agent_and_end_up_as_source(setup, fake_anki, ag
 
     [sent] = agent.images
     assert sent == [str(config.media_dir() / "ankihelper-quiz.png")]
-    assert str(config.media_dir() / "ankihelper-quiz.png") in agent.calls[0]
+    assert json.dumps(str(config.media_dir() / "ankihelper-quiz.png")) in agent.calls[0]
     note = fake_anki.notes[0]
     assert "<img" not in note["fields"]["Front"], "a read picture is not repeated on the front"
     assert "Source" in note["fields"]["Back"] and 'src="ankihelper-quiz.png"' in note["fields"]["Back"]

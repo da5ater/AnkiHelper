@@ -238,7 +238,7 @@ def history(note_id: int) -> dict:
     return {
         "known": True,
         "entry": {"question": entry.question, "answer": entry.answer, "topic": entry.topic, "created": entry.created, "images": entry.images or []},
-        "media_dir": str(config.media_dir()),
+        "media_dir": config.media_dir().as_uri(),
         "card": record["card"],
         "siblings": [
             {"note_id": s["note_id"], "question": s["card"]["question"], "group": s["card"].get("group", "main")}

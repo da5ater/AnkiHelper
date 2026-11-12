@@ -1,7 +1,7 @@
 import re
 from dataclasses import asdict
 
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -33,8 +33,8 @@ STUB_Y = 26
 
 
 def _rich(html: str) -> QLabel:
-    media = str(config.media_dir())
-    widget = QLabel(re.sub(r'src="(?!/|https?:)', f'src="{media}/', html))
+    media = QUrl.fromLocalFile(str(config.media_dir())).toString()
+    widget = QLabel(re.sub(r'src="(?!/|https?:|file:)', lambda _: f'src="{media}/', html))
     widget.setTextFormat(Qt.TextFormat.RichText)
     widget.setWordWrap(True)
     widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)

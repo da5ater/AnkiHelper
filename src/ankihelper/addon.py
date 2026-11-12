@@ -6,6 +6,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from .platforms import current as platform
+
 SOURCE = Path(__file__).parent / "anki_addon" / "ankihelper"
 NAME = "ankihelper"
 
@@ -23,6 +25,8 @@ def installed() -> bool:
 
 
 def _cli_command() -> list[str]:
+    if sys.platform == "win32":
+        return platform.ankihelper_command()
     found = shutil.which("ankihelper")
     return [found] if found else [sys.executable, "-m", "ankihelper"]
 
@@ -32,7 +36,7 @@ def install() -> str:
     target = addons_dir() / NAME
     target.parent.mkdir(parents=True, exist_ok=True)
     (SOURCE / "user_files").mkdir(exist_ok=True)
-    (SOURCE / "user_files" / "cli.json").write_text(json.dumps({"command": _cli_command()}, indent=2))
+    (SOURCE / "user_files" / "cli.json").write_text(json.dumps({"command": _cli_command()}, indent=2), encoding="utf-8")
     if target.is_symlink() or target.exists():
         if target.is_symlink() and target.resolve() == SOURCE.resolve():
             return f"Already installed at {target}. Restart Anki if it is open."

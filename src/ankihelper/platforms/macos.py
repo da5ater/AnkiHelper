@@ -4,6 +4,7 @@ from pathlib import Path
 
 SYSTEM_DICTATION: str | None = "macOS Dictation: press the Fn key twice in a text field"
 NAME = "macOS"
+NO_WINDOW = 0
 
 
 def anki_installed() -> bool:
@@ -32,3 +33,7 @@ def keybind_fix_hint() -> str:
         "On macOS: create two Shortcuts.app shortcuts (or skhd bindings) that run "
         "`ankihelper capture` and `ankihelper batch`, bound to Option+Cmd+A and Option+Cmd+B."
     )
+
+
+def install_shortcuts() -> str:
+    return keybind_fix_hint()

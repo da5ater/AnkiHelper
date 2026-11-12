@@ -184,3 +184,12 @@ def test_an_optimized_card_shows_the_deck_it_will_really_go_to(window):
     texts = [l.text() for l in main.inbox.findChildren(QLabel)]
     assert "agent::Software Development::Ruby & Rails::Rails" in texts
     assert not any(t.startswith("manual::agent") for t in texts)
+
+
+def test_preview_shows_pictures_from_a_media_folder_with_backslashes(window, monkeypatch, tmp_path):
+    from ankihelper.gui import review_page
+
+    monkeypatch.setenv("ANKIHELPER_HOME", str(tmp_path / "Users\\me"))
+    label = review_page._rich('<p>Q</p><img src="ankihelper-q.png">')
+
+    assert 'src="file://' in label.text() and label.text().endswith('ankihelper-q.png">')

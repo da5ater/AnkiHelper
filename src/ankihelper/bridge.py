@@ -71,9 +71,10 @@ def _render_reply(reply: dict, record: dict | None, entry: Entry | None, questio
                 {
                     "question": card.question,
                     "answer": card.answer,
-                    "front": render.question_html(card.question),
+                    "front": render.question_html(card.question) + render.images_html(card.pictures),
                     "back": render.to_html(card.answer),
                     "tags": tags,
+                    "media": [str(config.media_dir() / name) for name in card.pictures],
                 }
             )
     if new_cards:

@@ -36,6 +36,8 @@ class Card:
     list. optimized: extra higher-level cards. Anything else: the strategy of a version the learner picked."""
     versions: list[dict] = field(default_factory=list)
     """Alternatives offered in Preview ({"style", "why", "cards"}), kept so History in Anki can switch to them."""
+    pictures: list[str] = field(default_factory=list)
+    """Screenshots a move rendered for this card (file names in AnkiHelper's media folder), shown on the front."""
 
     @classmethod
     def parse(cls, raw) -> "Card":
@@ -50,6 +52,7 @@ class Card:
         bloom = str(raw.get("bloom") or "").strip().lower()
         group = re.sub(r"[^a-z0-9-]+", "-", str(raw.get("group") or "main").strip().lower()).strip("-") or "main"
         versions = raw.get("versions") if isinstance(raw.get("versions"), list) else []
+        pictures = [str(p) for p in raw.get("pictures") or [] if str(p).strip()]
         return cls(
             str(raw.get("source_id", "")),
             question,
@@ -59,6 +62,7 @@ class Card:
             bloom if bloom in BLOOM_LEVELS else "",
             group,
             versions,
+            pictures,
         )
 
 
@@ -181,7 +185,7 @@ def clean(
 
 
 def card_html(card: Card, entry: Entry) -> tuple[str, str]:
-    front = render.question_html(card.question) + render.images_html(entry.images_for("question", "show"))
+    front = render.question_html(card.question) + render.images_html(entry.images_for("question", "show") + card.pictures)
     back = (
         render.to_html(card.answer)
         + render.images_html(entry.images_for("answer", "show"))
@@ -191,6 +195,8 @@ def card_html(card: Card, entry: Entry) -> tuple[str, str]:
 
 
 def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> int:
+    for name in card.pictures:
+        anki.store_media(name, str(config.media_dir() / name))
     return anki.add_note(deck, cfg.note_type, *card_html(card, entry), anki_tags(card, entry))
 
 

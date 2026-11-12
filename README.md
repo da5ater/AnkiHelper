@@ -54,7 +54,12 @@ AnkiHelper also lives inside Anki, so you can work on a card at the moment you m
 
 ### Moves
 
-A move is a one-click thing you keep doing to a card. Six come built in: **✍ Word it better** and **🗣 Say it simply** (rewrites the back in plain words when it is too dense to follow) change the card; **🎬 Make it a scenario**, **⌨ Make me write it**, **✂ Split this** and **✨ Versions** add new cards next to the original. You always see the result and decide; nothing runs on many cards at once.
+A move is a one-click thing you keep doing to a card. Six come built in: **✍ Word it better** and **🗣 Say it simply** (rewrites the back in plain words when it is too dense to follow) change the card; **🎬 Make it a scenario**, **🧩 LeetCode it**, **✂ Split this** and **✨ Versions** add new cards next to the original. You always see the result and decide; nothing runs on many cards at once.
+
+Two moves practice the card on real material, so the agent may search and read the web for them (it still can't run commands or write files):
+
+- **🎬 Make it a scenario** finds a well-known open-source project that uses the card's technique and turns it into a task, the way GreatFrontEnd or a take-home question would: the front sets the scene and shows the project's real code in code blocks with a `TODO` where your code goes; the back has the code, why this technique fits, and a link to the file. For CSS and layout cards it adds screenshots of how the page looks now and how it should look, rendered with a headless Chrome, Chromium or Edge, and you write the CSS change.
+- **🧩 LeetCode it** finds a real LeetCode or Codeforces problem whose best solution uses the card's technique: the problem with its link, a short restatement and example on the front, a solution and its complexity on the back. When no real problem fits, such as a Rails database API, it says so instead of forcing one.
 
 - Each move remembers the last 3 results you kept and shows them to the agent as examples, so it stays consistent with your taste.
 - Make your own with **⭐ Save as move** in the F window, or teach an existing one with **🎓 Teach the move this?** after you correct its result. Every change to a move can be undone on the Moves page.

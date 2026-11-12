@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 from filelock import FileLock
 
-from . import agents, config, learning
+from . import agents, config, learning, screenshots
 from .config import Config
 
 CHANGE, ADD = "change", "add"
@@ -45,13 +45,54 @@ class Move:
     history: list[dict] = field(default_factory=list)
     """Earlier instructions, newest last, so a change to the move can be undone."""
     builtin: bool = False
+    web: bool = False
+    """The agent may search and read the web (never write or run anything) to ground the result in real sources."""
+
+
+SCENARIO = (
+    "Turn this card into one practice task built from real code, the way GreatFrontEnd or a take-home interview "
+    "question would ask it. Search the web, GitHub first, for a well-known open-source project that uses exactly "
+    "this technique (for Rails, apps such as Discourse, GitLab, Mastodon or Forem; for front-end, a real design "
+    "system or site), open the actual file, and build the task from it. "
+    "The front sets the scene in two or three sentences: which project, which feature, what is happening and what "
+    "is needed. Then it shows the real surrounding code in fenced code blocks, trimmed to what the task needs but "
+    "with the project's real names, with the part to write replaced by a `TODO` comment that says what goes there. "
+    "It ends with one concrete instruction such as \"Write the code that replaces the TODO.\" The task must need "
+    "the card's technique to solve it, not something trivial. "
+    "The back has the code that fills the TODO in a fenced code block, one or two bullets on why this technique is "
+    "the right one here, and a link to the file you read as `[project: path](url)`. "
+    "For a front-end card about CSS or layout, also give the card \"screens\": a \"Now\" page that reproduces "
+    "the broken or current look and a \"Target\" page with the look to reach, each a small self-contained HTML "
+    "page with its CSS inline. The front shows the current CSS in a code block and asks what to change to reach "
+    "the target; the back has the changed CSS. "
+    "If you cannot find a real use, base the task on typical production code, say so in your reply, and leave out "
+    "the link."
+)
+
+LEETCODE = (
+    "Find one real LeetCode or Codeforces problem whose best solution uses exactly the technique or code on this "
+    "card. Search the web: LeetCode, Codeforces, and well-known GitHub lists of frequently asked problems (Blind "
+    "75, NeetCode 150, LeetCode Top Interview, company-tagged lists). Prefer a well-known, frequently asked problem "
+    "and open it to check what it asks. "
+    "Write one new card. The front gives the problem's name as a link, `[LeetCode 347: Top K Frequent "
+    "Elements](url)`, restates it in your own words in two to four sentences with one small example input and "
+    "output, and asks the learner to solve it using the card's technique, named. The back has a short solution in "
+    "a fenced code block, in the card's language when the problem allows it, plus one bullet on where the "
+    "technique does the work and one on time and space complexity. "
+    "If no real problem genuinely needs this technique, for example a framework or database API such as Rails' "
+    "find_each, do not force one: return no new cards and say in the reply that no real problem fits this card "
+    "and that 🎬 Make it a scenario suits it."
+)
+
+RETIRED = {"write"}
+"""Built-in moves that were removed; the learner's saved copy is dropped unless they made it their own."""
 
 
 BUILTIN = [
     Move("word", "✍", "Word it better", CHANGE, "Rewrite the question and the answer so they are clear, precise and short. Keep exactly the same meaning, facts and examples; only fix wording, grammar and code formatting.", builtin=True),
     Move("simple", "🗣", "Say it simply", CHANGE, "Rewrite the answer in plain, everyday words, the way one person explains it to another: short sentences, no jargon, and any technical term the learner needs explained in a few words the first time. Keep the question, every fact, code and example exactly as they are; the answer should not get longer than it needs to be.", builtin=True),
-    Move("scenario", "🎬", "Make it a scenario", ADD, "Write a new card that puts this knowledge in a short, realistic situation from an ordinary app and asks what the learner would use or do. The answer is one short, consistent line.", builtin=True),
-    Move("write", "⌨", "Make me write it", ADD, "Write a new card that gives the learner a concrete input or surrounding context and asks them to write the exact code, command or output. The answer is exactly that code or output.", builtin=True),
+    Move("scenario", "🎬", "Make it a scenario", ADD, SCENARIO, builtin=True, web=True),
+    Move("leetcode", "🧩", "LeetCode it", ADD, LEETCODE, builtin=True, web=True),
     Move("split", "✂", "Split this", ADD, "Split this card into separate small cards, one per idea or list item, each with a context cue in its question so it makes sense on its own.", builtin=True),
     Move("versions", "✨", "Versions", ADD, "Write 3 or 4 alternative cards for the same knowledge, each using a different strategy (why, scenario, compare and contrast, reverse, interview) and climbing Bloom's taxonomy. Start each question with the strategy in brackets, for example [Scenario].", builtin=True),
 ]
@@ -73,14 +114,25 @@ def _load() -> list[Move]:
     path = _path()
     if not path.exists():
         return [Move(**asdict(m)) for m in BUILTIN]
-    saved = [Move(**raw) for raw in json.loads(path.read_text())]
-    known = {m.id for m in saved}
-    return saved + [Move(**asdict(m)) for m in BUILTIN if m.id not in known]
+    saved = [Move(**raw) for raw in json.loads(path.read_text(encoding="utf-8"))]
+    shipped = {m.id: m for m in BUILTIN}
+    current = []
+    for move in saved:
+        if move.builtin and move.id in RETIRED and not move.history:
+            continue
+        if move.id in shipped:
+            fresh = shipped[move.id]
+            move.web = fresh.web
+            if not move.history:
+                move.icon, move.name, move.mode, move.instruction = fresh.icon, fresh.name, fresh.mode, fresh.instruction
+        current.append(move)
+    known = {m.id for m in current}
+    return current + [Move(**asdict(m)) for m in BUILTIN if m.id not in known]
 
 
 def _save(moves: list[Move]) -> None:
     tmp = _path().with_suffix(".tmp")
-    tmp.write_text(json.dumps([asdict(m) for m in moves], indent=2, ensure_ascii=False))
+    tmp.write_text(json.dumps([asdict(m) for m in moves], indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(_path())
 
 
@@ -161,6 +213,7 @@ def run(cfg: Config, move_id: str, card: dict, original: dict, messages: list[di
         move_name=move.name,
         instruction=move.instruction,
         mode="Rewrite the card itself and return it in \"card\"." if move.mode == CHANGE else "Leave the card alone and return new cards in \"new_cards\" (at most 4).",
+        sources="You may search and read the web for this move. Link only pages you actually opened during this task." if move.web else "Work from the card and what you know; you cannot browse.",
         examples="\n".join(json.dumps(e, ensure_ascii=False) for e in move.examples) or "(none yet)",
         language=language,
         answer_style=ANSWER_STYLE,
@@ -168,7 +221,8 @@ def run(cfg: Config, move_id: str, card: dict, original: dict, messages: list[di
         card=json.dumps(card, ensure_ascii=False),
         messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-20:]) or "(none)",
     )
-    reply = agents.extract_json(agents.ask(cfg.agent, text, images=images))
+    reply = agents.extract_json(agents.ask(cfg.agent, text, timeout=900 if move.web else 600, images=images, web=move.web))
+    screenshots.attach(reply)
     _change(move_id, lambda m: setattr(m, "uses", m.uses + 1))
     return reply
 

@@ -1,12 +1,14 @@
 import json
+import os
+from dataclasses import asdict
 
-from ankihelper import agents, bridge, inbox, learning, moves, notes, review
+from ankihelper import agents, bridge, inbox, learning, moves, notes, review, screenshots
 from ankihelper.batch import Card
 from ankihelper.config import Config
 
 
 def agent_replying(reply: dict, seen: list | None = None):
-    def ask(name, text, timeout=600, images=None):
+    def ask(name, text, timeout=600, images=None, web=False):
         if seen is not None:
             seen.append({"text": text, "images": images})
         return json.dumps(reply)
@@ -15,7 +17,7 @@ def agent_replying(reply: dict, seen: list | None = None):
 
 
 def test_the_starting_moves_are_ordered_by_use():
-    assert [m.name for m in moves.ordered()] == ["Word it better", "Say it simply", "Make it a scenario", "Make me write it", "Split this", "Versions"]
+    assert [m.name for m in moves.ordered()] == ["Word it better", "Say it simply", "Make it a scenario", "LeetCode it", "Split this", "Versions"]
     moves._change("split", lambda m: setattr(m, "uses", 3))
     assert moves.ordered()[0].name == "Split this"
 
@@ -55,7 +57,7 @@ def test_a_move_runs_on_the_latest_draft_and_sees_the_conversation(monkeypatch):
     monkeypatch.setattr(agents, "ask", agent_replying({"reply": "ok", "new_cards": []}, seen))
     messages = [{"role": "learner", "text": "only the commands I actually type, with exact arguments"}]
 
-    bridge.run_move(Config(), 5, "write", "<p>old?</p>", "<p>old</p>", messages, {"question": "Draft question?", "answer": "Draft answer"})
+    bridge.run_move(Config(), 5, "split", "<p>old?</p>", "<p>old</p>", messages, {"question": "Draft question?", "answer": "Draft answer"})
 
     assert "Draft question?" in seen[0]["text"] and "old?" not in seen[0]["text"]
     assert "only the commands I actually type" in seen[0]["text"]
@@ -92,8 +94,8 @@ def test_teaching_a_move_shows_the_change_and_can_be_undone(monkeypatch):
 
 def test_a_move_remembers_only_the_last_three_results_kept():
     for n in range(5):
-        moves.record_example("write", {"question": f"q{n}"}, {"question": f"r{n}"})
-    assert [e["result"]["question"] for e in moves.get("write").examples] == ["r2", "r3", "r4"]
+        moves.record_example("split", {"question": f"q{n}"}, {"question": f"r{n}"})
+    assert [e["result"]["question"] for e in moves.get("split").examples] == ["r2", "r3", "r4"]
 
 
 def test_finishing_a_conversation_teaches_the_moves_the_learner_kept():
@@ -139,15 +141,15 @@ def test_in_preview_an_adding_move_hangs_its_cards_under_the_card(monkeypatch):
     session = _session(entry, "What is an enum in Rails?")
     monkeypatch.setattr(agents, "ask", agent_replying({"reply": "ok", "new_cards": [{"question": "An orders table has status 0,1,2. Write the enum line.", "answer": "enum status: {...}"}]}))
 
-    review.apply_move(Config(), session, 0, "write")
+    review.apply_move(Config(), session, 0, "split")
 
     [version] = session.slots[0].versions
-    assert version.move == "write" and version.style == "⌨ Make me write it"
+    assert version.move == "split" and version.style == "✂ Split this"
     assert session.slots[0].card.question == "What is an enum in Rails?", "the original card is untouched"
     review.use_version(session, 0, version, add=True)
     session.slots[1].status = review.ACCEPTED
     session.teach_moves()
-    assert moves.get("write").examples[-1]["result"]["question"].startswith("An orders table")
+    assert moves.get("split").examples[-1]["result"]["question"].startswith("An orders table")
 
 
 def test_in_preview_a_changing_move_keeps_the_original_and_a_correction_offers_teaching(monkeypatch):
@@ -173,3 +175,44 @@ def test_the_card_chat_no_longer_teaches_and_reads_pasted_pictures(monkeypatch):
 
     assert seen[0]["images"] == ["/media/ankihelper-chat-1.png"]
     assert "You do not teach" in seen[0]["text"] and "{rules}" not in seen[0]["text"]
+
+
+def test_built_in_moves_update_unless_the_learner_taught_them_and_retired_ones_go(monkeypatch):
+    old = [asdict(m) for m in moves._load()]
+    for raw in old:
+        if raw["id"] == "scenario":
+            raw.update(instruction="old scenario wording", web=False)
+        if raw["id"] == "simple":
+            raw.update(instruction="my own wording", history=[{"instruction": "x", "time": "t"}])
+    old.append({**asdict(moves.BUILTIN[0]), "id": "write", "name": "Make me write it", "instruction": "old"})
+    moves._save([moves.Move(**raw) for raw in old])
+
+    assert moves.get("scenario").instruction == moves.SCENARIO and moves.get("scenario").web
+    assert moves.get("simple").instruction == "my own wording", "a move the learner taught keeps their wording"
+    assert "write" not in [m.id for m in moves.ordered()]
+
+
+def test_web_moves_let_the_agent_search_and_turn_screens_into_pictures(monkeypatch):
+    calls = []
+
+    def ask(name, text, timeout=600, images=None, web=False):
+        calls.append(web)
+        return json.dumps({"reply": "ok", "new_cards": [{"question": "Fix the button", "answer": "gap: 8px", "screens": [{"label": "Now", "html": "<p>a</p>"}, {"label": "Target", "html": "<p>b</p>"}]}]})
+
+    monkeypatch.setattr(agents, "ask", ask)
+    monkeypatch.setattr(screenshots, "shoot", lambda page, label: f"shot-{label}.png")
+
+    turn = bridge.run_move(Config(), 5, "scenario", "<p>flex gap?</p>", "<p>gap</p>", [], None)
+
+    assert calls == [True]
+    [card] = turn["new_cards"]
+    assert 'src="shot-Now.png"' in card["front"] and 'src="shot-Target.png"' in card["front"]
+    assert [os.path.basename(p) for p in card["media"]] == ["shot-Now.png", "shot-Target.png"]
+    moves.run(Config(), "split", {"question": "q", "answer": "a"}, {}, [], [], "English")
+    assert calls[-1] is False, "moves without web stay offline"
+
+
+def test_leetcode_it_can_answer_that_no_real_problem_fits(monkeypatch):
+    monkeypatch.setattr(agents, "ask", agent_replying({"reply": "No real problem fits find_each; try Make it a scenario.", "new_cards": []}))
+    turn = bridge.run_move(Config(), 5, "leetcode", "<p>find_each vs all.each?</p>", "<p>batches</p>", [], None)
+    assert "new_cards" not in turn and "scenario" in turn["reply"]

@@ -42,18 +42,27 @@ def _opencode_models() -> list[tuple[str, str]]:
 
 
 NO_TOOLS_OPENCODE = json.dumps({"permission": {"edit": "deny", "bash": "deny", "webfetch": "deny"}})
+WEB_ONLY_OPENCODE = json.dumps({"permission": {"edit": "deny", "bash": "deny", "webfetch": "allow"}})
+CLAUDE_WEB = ["WebSearch", "WebFetch"]
+
+
+def _claude_text(images: list[str], web: bool) -> list[str]:
+    tools = (["Read"] if images else []) + (CLAUDE_WEB if web else [])
+    if not tools:
+        return ["claude", "-p", "--tools", ""]
+    return ["claude", "-p", "--tools", ",".join(tools), "--allowedTools", ",".join(tools), *_add_dirs(images)]
 
 
 @dataclass(frozen=True)
 class Agent:
     name: str
     binary: str
-    text: Callable[[list[str]], list[str]]
-    """Reads the prompt on stdin and answers with text. It may read the given image files, nothing else
-    is writable, and it cannot run commands."""
+    text: Callable[[list[str], bool], list[str]]
+    """Reads the prompt on stdin and answers with text. It may read the given image files and, when asked,
+    search and read the web; nothing is writable and it cannot run commands."""
     fix: Callable[[str], list[str]]
     """Command that may run shell commands without asking (setup fixes)."""
-    text_env: dict[str, str] = field(default_factory=dict)
+    text_env: Callable[[bool], dict[str, str]] = lambda web: {}
     model_at: int = 1
     """Where "--model <name>" goes in the command, after any subcommand such as `exec` or `run`."""
     models: Callable[[], list[tuple[str, str]]] = lambda: []
@@ -69,18 +78,17 @@ AGENTS: dict[str, Agent] = {
         Agent(
             "claude",
             "claude",
-            text=lambda images: ["claude", "-p", "--tools", ""]
-            if not images
-            else ["claude", "-p", "--tools", "Read", "--allowedTools", "Read", *_add_dirs(images)],
+            text=_claude_text,
             fix=lambda p: ["claude", "-p", "--dangerously-skip-permissions", p],
             models=lambda: [("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")],
         ),
         Agent(
             "codex",
             "codex",
-            text=lambda images: [
+            text=lambda images, web: [
                 "codex",
                 "exec",
+                *(["--search"] if web else []),
                 *[arg for image in images for arg in ("--image", image)],
                 "--skip-git-repo-check",
                 "--sandbox",
@@ -94,16 +102,16 @@ AGENTS: dict[str, Agent] = {
         Agent(
             "gemini",
             "gemini",
-            text=lambda images: ["gemini", "--approval-mode", "default", *_include_dirs(images), "-p", ""],
+            text=lambda images, web: ["gemini", "--approval-mode", "default", *_include_dirs(images), "-p", ""],
             fix=lambda p: ["gemini", "--yolo", "-p", p],
             models=lambda: [("auto", "Auto"), ("pro", "Pro"), ("flash", "Flash"), ("flash-lite", "Flash Lite")],
         ),
         Agent(
             "opencode",
             "opencode",
-            text=lambda images: ["opencode", "run", *[arg for image in images for arg in ("-f", image)]],
+            text=lambda images, web: ["opencode", "run", *[arg for image in images for arg in ("-f", image)]],
             fix=lambda p: ["opencode", "run", p],
-            text_env={"OPENCODE_CONFIG_CONTENT": NO_TOOLS_OPENCODE},
+            text_env=lambda web: {"OPENCODE_CONFIG_CONTENT": WEB_ONLY_OPENCODE if web else NO_TOOLS_OPENCODE},
             model_at=2,
             models=lambda: _opencode_models(),
         ),
@@ -139,20 +147,21 @@ def chosen_model(name: str) -> str:
     return Config.load().models.get(name, "")
 
 
-def ask(name: str, prompt_text: str, timeout: float = 600, images: list[str] | None = None) -> str:
+def ask(name: str, prompt_text: str, timeout: float = 600, images: list[str] | None = None, web: bool = False) -> str:
+    """`web` lets the agent search and read web pages (Gemini always can), still with no shell and no writes."""
     agent = get(name)
     if not installed(name):
         raise AgentError(f"{agent.binary} is not installed")
     try:
         done = subprocess.run(
-            resolved(agent.with_model(agent.text(images or []), chosen_model(name))),
+            resolved(agent.with_model(agent.text(images or [], web), chosen_model(name))),
             input=prompt_text,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            env={**os.environ, **agent.text_env},
+            env={**os.environ, **agent.text_env(web)},
             creationflags=platform.NO_WINDOW,
         )
     except subprocess.TimeoutExpired as e:

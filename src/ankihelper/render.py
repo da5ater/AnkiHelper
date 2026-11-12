@@ -29,6 +29,7 @@ def _inline(text: str) -> str:
             out.append(f"<code>{html.escape(part[1:-1])}</code>")
         else:
             escaped = html.escape(part)
+            escaped = re.sub(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)", r'<a href="\2">\1</a>', escaped)
             out.append(re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped))
     return "".join(out)
 

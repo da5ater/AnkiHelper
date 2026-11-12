@@ -501,6 +501,9 @@ class FixDialog(QDialog):
             html += "<p><i>↑ The card above is the new version. Press OK to keep it.</i></p>"
         self._bubble("ah", html)
         for card in reply.get("new_cards") or []:
+            for path in card.get("media") or []:
+                if os.path.exists(path):
+                    mw.col.media.add_file(path)
             self.proposals.append({**card, "move": move_id})
             index = len(self.proposals) - 1
             self.bubbles.append(

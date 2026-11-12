@@ -55,3 +55,9 @@ def test_learner_instructions_override_the_default_card_rules():
     text = prompt("process", entries="", language="English")
     assert "The learner's instructions come first" in text
     assert "not one card per bullet" in text
+
+
+def test_links_render_and_other_brackets_stay_text():
+    out = render.to_html("See [LeetCode 347: Top K](https://leetcode.com/problems/top-k-frequent-elements/) and [not a link].")
+    assert '<a href="https://leetcode.com/problems/top-k-frequent-elements/">LeetCode 347: Top K</a>' in out
+    assert "[not a link]" in out

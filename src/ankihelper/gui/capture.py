@@ -56,7 +56,7 @@ class CapturePage(Page):
 
         self.mic = QPushButton(MIC_ICONS["idle"])
         self.mic.setObjectName("mic")
-        self.mic.setToolTip("Start or stop Voxtype")
+        self.mic.setToolTip("Start or stop dictation")
         self.mic.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.mic.clicked.connect(self._toggle_mic)
         self.status = label("Ctrl+Enter save   ·   Tab next field   ·   Esc close", "faint")
@@ -108,22 +108,23 @@ class CapturePage(Page):
         self.question.setFocus()
 
     def refresh_dictation(self) -> None:
-        voxtype = self.cfg.dictation == "voxtype"
-        self.mic.setVisible(voxtype)
-        if voxtype:
+        self.engine = dictation.get(self.cfg.dictation)
+        driven = bool(self.engine and self.engine.toggle)
+        self.mic.setVisible(driven)
+        if driven:
             self.mic_timer.start(600)
             self._poll_mic()
         else:
             self.mic_timer.stop()
 
     def _toggle_mic(self) -> None:
-        dictation.toggle_voxtype()
+        self.engine.toggle()
         QTimer.singleShot(150, self._poll_mic)
 
     def _poll_mic(self) -> None:
-        state = dictation.voxtype_state()
+        state = self.engine.state()
         self.mic.setEnabled(state is not None)
-        self.mic.setToolTip("Voxtype daemon is not running" if state is None else f"Voxtype is {state}. Click to toggle.")
+        self.mic.setToolTip(f"{self.engine.title} is not running" if state is None else f"{self.engine.title} is {state}. Click to toggle.")
         state = state or "idle"
         if self.mic.property("state") != state:
             self.mic.setProperty("state", state)

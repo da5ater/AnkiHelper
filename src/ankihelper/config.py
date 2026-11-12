@@ -41,7 +41,7 @@ class Config:
     agent: str = "claude"
     models: dict[str, str] = field(default_factory=dict)
     """The model each agent uses, by agent name; missing or empty means the CLI's own default."""
-    dictation: str = field(default_factory=lambda: "voxtype" if sys.platform.startswith("linux") else "system")
+    dictation: str = field(default_factory=lambda: "voxtype" if sys.platform.startswith("linux") else "hex")
     anki_url: str = "http://127.0.0.1:8765"
     root_deck: str = "manual"
     note_type: str = "Basic+"

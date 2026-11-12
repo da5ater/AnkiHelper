@@ -12,7 +12,7 @@ AGENT_BLURBS = {
     "gemini": "Google Gemini CLI",
     "opencode": "OpenCode",
 }
-DICTATION_COLORS = {"voxtype": theme.PINK, "system": theme.BLUE, "none": theme.MUTED}
+DICTATION_COLORS = {"hex": theme.GREEN, "voxtype": theme.PINK, "system": theme.BLUE, "none": theme.MUTED}
 
 
 def tile(title: str, blurb: str, color: str) -> QPushButton:

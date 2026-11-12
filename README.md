@@ -6,7 +6,7 @@ Make Anki cards while you study without leaving what you're doing. Press a short
 
 Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbox (with Preview), Setup and Settings.
 
-1. **Capture.** `Super+Alt+A` (`Ctrl+Alt+A` on Windows) runs `ankihelper capture`, which opens the window on the Capture page: Question, Answer and Topic. Dictate with the mic button (it starts and stops Voxtype), your OS dictation, or paste. Ctrl+V or drag-and-drop a picture (a screenshot, an image copied from a browser, or an image file) into Question or Answer. Each thumbnail has a toggle: **🖼 Show** puts the picture on the card as a visual, **📖 Read** means the picture *is* the content (say a quiz question screenshotted from an article) and the agent reads it and writes the card from it. A picture pasted into an empty Question defaults to Read; everything else defaults to Show. Tab moves between fields, Ctrl+Enter saves and closes, Esc closes. Topic autocompletes from the subdecks of your `manual` deck and shows the deck the card will land in. Each card is one line in `inbox.jsonl` in AnkiHelper's data folder (`~/.local/share/ankihelper` on Linux, `%LOCALAPPDATA%\ankihelper` on Windows). Run `ankihelper capture --stay` to keep the window open between cards.
+1. **Capture.** `Super+Alt+A` (`Ctrl+Alt+A` on Windows) runs `ankihelper capture`, which opens the window on the Capture page: Question, Answer and Topic. Dictate with the mic button (it starts and stops [Hex](https://github.com/anomalyco/hex) or Voxtype), your OS dictation, or paste. Ctrl+V or drag-and-drop a picture (a screenshot, an image copied from a browser, or an image file) into Question or Answer. Each thumbnail has a toggle: **🖼 Show** puts the picture on the card as a visual, **📖 Read** means the picture *is* the content (say a quiz question screenshotted from an article) and the agent reads it and writes the card from it. A picture pasted into an empty Question defaults to Read; everything else defaults to Show. Tab moves between fields, Ctrl+Enter saves and closes, Esc closes. Topic autocompletes from the subdecks of your `manual` deck and shows the deck the card will land in. Each card is one line in `inbox.jsonl` in AnkiHelper's data folder (`~/.local/share/ankihelper` on Linux, `%LOCALAPPDATA%\ankihelper` on Windows). Run `ankihelper capture --stay` to keep the window open between cards.
 2. **Inbox and batch.** The Inbox page lists waiting cards, each with **👁 Preview** and **🗑 Remove** (Undo brings a removed entry back; Preview has the same Remove), and has a **Process batch** button. `Super+Alt+B` (`Ctrl+Alt+B` on Windows) runs `ankihelper batch` without opening the window. It opens Anki if needed and sends the inbox to your agent on stdin, 20 entries per call. The agent returns cleaned cards as JSON. It runs without write access: Claude with no tools, Codex in its read-only sandbox, OpenCode with edit, bash and web access denied, and Gemini in default approval mode, which refuses tools that need confirmation. AnkiHelper then renders the cards (code highlighted with Pygments, monokai) and adds them to `manual::<topic>` with the `Basic+` note type, tagged `manual_voice` plus topic tags. Show pictures are uploaded to Anki's media folder and shown under the question or answer; the agent is told they exist but never sees them. Read pictures are handed to the agent as read-only files (Claude gets only its Read tool, Codex and OpenCode get them attached, Gemini gets read access to the media folder), and the original is kept small under "Source" at the bottom of the answer. It syncs to AnkiWeb and sends a notification with the result.
 3. **Preview canvas.** Every Inbox card has a **👁 Preview** button. It opens a scrollable canvas: your note at the top, and each card the agent writes hanging off it as its own node with a clear **FRONT** and **BACK**. On each card:
    - **✓ Accept** marks it good, **✕ Remove** leaves it out (with Undo).
@@ -17,7 +17,7 @@ Everything lives in one window with four pages (Ctrl+1 to Ctrl+4): Capture, Inbo
    Reopening Preview shows the cards you saved instead of writing new ones. Only accepted cards are saved: **Accept all** accepts every card you haven't removed, **Save N** locks in the accepted cards so the batch imports exactly those and takes you back to the Inbox, and **Import** sends them to Anki immediately.
 4. **Setup.** `ankihelper setup` opens the window on the Setup page, a checklist: Anki, AnkiConnect, the root deck, the note type, dictation, the CLI on PATH, the agent and the shortcuts. Fix a problem yourself and press **Recheck**, or press **Fix with agent** to let the selected agent fix it headlessly; the window shows its log and rechecks when it finishes. `ankihelper doctor` prints the same checklist in a terminal.
 5. **Moves.** The Moves page lists every move, most used first, with how often you used it, its instruction (edit and **Save instruction**), the last results you kept, **↶ Undo last change**, and **🗑 Delete** for moves you made. Suggested moves appear at the top.
-6. **Settings.** Pick the agent (Claude, Codex, Gemini, OpenCode) and its model, the dictation method (Voxtype, system dictation, keyboard only) and the card language, and set the root deck, note type and AnkiConnect URL. Changes save immediately.
+6. **Settings.** Pick the agent (Claude, Codex, Gemini, OpenCode) and its model, the dictation method (Hex, Voxtype, system dictation, keyboard only) and the card language, and set the root deck, note type and AnkiConnect URL. Changes save immediately.
 
 ### What the agent does to a card
 
@@ -111,7 +111,17 @@ uv run python -m ankihelper install-shortcuts
 uv run python -m ankihelper setup
 ```
 
-`install-addon` copies the add-on into `%APPDATA%\Anki2\addons21\ankihelper`. `install-shortcuts` adds two Start-menu shortcuts with hotkeys: `Ctrl+Alt+A` captures a card and `Ctrl+Alt+B` runs the batch. Dictation uses Windows voice typing (`Win+H` in a field). Both the add-on and the shortcuts start AnkiHelper with the project's own Python, so they keep working on company laptops whose Application Control blocks the `ankihelper.exe` launcher. For the same reason, run commands as `uv run python -m ankihelper <command>` instead of `ankihelper <command>`. After `git pull`, run `uv sync` and `install-addon` again, because Windows gets a copy of the add-on, not a link.
+`install-addon` copies the add-on into `%APPDATA%\Anki2\addons21\ankihelper`. `install-shortcuts` adds two Start-menu shortcuts with hotkeys: `Ctrl+Alt+A` captures a card and `Ctrl+Alt+B` runs the batch. Dictation uses [Hex](https://github.com/anomalyco/hex), free local AI dictation from the OpenCode team that installs without admin rights (see *Dictation* below); Windows voice typing (`Win+H`) works too. Both the add-on and the shortcuts start AnkiHelper with the project's own Python, so they keep working on company laptops whose Application Control blocks the `ankihelper.exe` launcher. For the same reason, run commands as `uv run python -m ankihelper <command>` instead of `ankihelper <command>`. After `git pull`, run `uv sync` and `install-addon` again, because Windows gets a copy of the add-on, not a link.
+
+### Dictation
+
+[Hex](https://github.com/anomalyco/hex) transcribes on your machine with a local speech model and works on Linux, macOS and Windows. On Windows it installs for your user only, no admin needed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://anoma.ly/hex/files/install-windows.ps1 -OutFile install-windows.ps1; ./install-windows.ps1"
+```
+
+On Linux: `curl -fsSL https://anoma.ly/hex/install-linux.sh | sh`. Open Hex once so it downloads its speech model, then pick **Hex** under Settings → Dictation. Hold `Ctrl+Space` in any field to dictate, or press the mic button in Capture to start and stop it; the text lands in the field you were typing in.
 
 ### Both
 
@@ -126,7 +136,7 @@ Restart Anki after installing the add-on; Tools → AnkiHelper confirms it loade
 | `agent` | `claude` | `claude`, `codex`, `gemini` or `opencode`. `ankihelper batch --agent codex` overrides it for one run. |
 | `models` | `{}` | The model each agent uses, for example `{"claude": "sonnet"}`; empty means the agent's own default. Pick it from the list under Settings → Model. |
 | `language` | `English` | Language cards are written in; Capture can override it per card |
-| `dictation` | `voxtype` on Linux, `system` elsewhere | `voxtype`, `system` or `none` |
+| `dictation` | `voxtype` on Linux, `hex` elsewhere | `hex`, `voxtype`, `system` or `none` |
 | `anki_url` | `http://127.0.0.1:8765` | AnkiConnect address |
 | `root_deck` | `manual` | Cards go to `<root_deck>::<topic>` |
 | `note_type` | `Basic+` | Must have the fields `Front` and `Back` |

@@ -102,12 +102,18 @@ def _hint(text: str) -> Callable[[Config], str]:
     return lambda cfg: text
 
 
+DICTATION_HINTS = {
+    "hex": "Install Hex without admin rights (Windows: `powershell -ExecutionPolicy Bypass -Command \"iwr https://anoma.ly/hex/files/install-windows.ps1 -OutFile install-windows.ps1; ./install-windows.ps1\"`; Linux: `curl -fsSL https://anoma.ly/hex/install-linux.sh | sh`), then open it and let it download its speech model.",
+    "voxtype": "Install voxtype (https://voxtype.io), run `voxtype setup`, and start its daemon (`systemctl --user enable --now voxtype`). Or pick another dictation method in Settings.",
+}
+
+
 CHECKS: list[Check] = [
     Check("anki", "Anki installed", _anki_installed, _hint("Install Anki from https://apps.ankiweb.net (or the distro package).")),
     Check("ankiconnect", "AnkiConnect reachable", _ankiconnect, lambda cfg: f"Install the AnkiConnect add-on (2055492159), make sure it listens on {cfg.anki_url}, and that Anki starts."),
     Check("deck", "Root deck exists", _root_deck, lambda cfg: f"Create the deck '{cfg.root_deck}' through AnkiConnect's createDeck."),
     Check("notetype", "Note type ready", _note_type, lambda cfg: f"Create a note type '{cfg.note_type}' with fields Front and Back and one card template (front {{{{Front}}}}, back {{{{FrontSide}}}}<hr id=answer>{{{{Back}}}}) via AnkiConnect's createModel."),
-    Check("dictation", "Dictation available", _dictation, _hint("Install voxtype (https://voxtype.io), run `voxtype setup`, and start its daemon (`systemctl --user enable --now voxtype`). Or pick another dictation method in Settings.")),
+    Check("dictation", "Dictation available", _dictation, lambda cfg: DICTATION_HINTS.get(cfg.dictation, "Pick a dictation method in Settings.")),
     Check("path", "ankihelper on PATH", _on_path, _hint("Install the CLI with `uv tool install --editable <project dir>` so `ankihelper` lands in ~/.local/bin, and make sure that directory is on PATH.")),
     Check("agent", "Agent CLI works", _agent, lambda cfg: f"Make the `{cfg.agent}` CLI installed and logged in so it can answer a non-interactive prompt."),
     Check("addon", "Anki add-on installed", _addon, _hint("Run `ankihelper install-addon`, then restart Anki.")),

@@ -128,3 +128,27 @@ def test_bloom_level_is_kept_validated_and_tagged(fake_anki, monkeypatch):
 def test_process_prompt_splits_lists_and_uses_bloom():
     text = agents.prompt("process", entries="", language="English", rules="")
     assert "Lists always split" in text and "## Bloom's taxonomy" in text
+
+
+def test_new_versions_replace_the_old_ones_but_keep_the_original_and_remember_their_source(monkeypatch):
+    entry = inbox.Entry.new("alias", "", "ruby")
+    session = _session_with(entry, "What does alias bind?")
+    batches = iter(["First", "Second"])
+    monkeypatch.setattr(
+        agents,
+        "ask",
+        lambda name, text, timeout=600, images=None: json.dumps({"versions": [{"style": next(batches), "why": "", "cards": [{"question": "Given this code, what prints?", "answer": "x"}]}]}),
+    )
+
+    review.apply_move(Config(), session, 0, "versions")
+    review.use_version(session, 0, session.slots[0].versions[0], add=False)
+    review.apply_move(Config(), session, 0, "versions")
+
+    assert [v.style for v in session.slots[0].versions] == ["Second", "Original"]
+    assert session.slots[0].versions[0].cards[0].made_from == {"question": "Given this code, what prints?", "answer": "x"}
+    assert session.slots[0].card.made_from["question"] == "What does alias bind?"
+
+
+def test_versions_are_told_to_show_the_code_they_ask_about():
+    text = agents.prompt("versions", language="English", answer_style="", entry="", cards="", others="")
+    assert "the front shows that code in a fenced code block" in text

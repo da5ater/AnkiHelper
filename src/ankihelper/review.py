@@ -131,32 +131,45 @@ def revise(cfg: Config, review: Review, index: int, feedback: str) -> list[batch
     return cards
 
 
-def versions(cfg: Config, review: Review, index: int) -> list[Version]:
-    """Alternative ways to ask one card, each built on a different prompt-writing strategy."""
-    slot = review.slots[index]
+def make_versions(cfg: Config, entry: Entry, card: batch.Card, others: list[batch.Card], agent: str | None = None) -> list[Version]:
+    """Alternative ways to ask one card, each built on a different prompt-writing strategy. Every version's
+    card remembers the card it was made from."""
     text = agents.prompt(
         "versions",
-        language=review.entry.language or cfg.language,
+        language=entry.language or cfg.language,
         answer_style=moves.ANSWER_STYLE,
-        entry=_entry_json(review.entry),
-        cards=json.dumps([asdict(slot.card)], ensure_ascii=False),
-        others=json.dumps([asdict(c) for i, c in enumerate(review.cards) if i != index], ensure_ascii=False),
+        entry=_entry_json(entry),
+        cards=json.dumps([asdict(replace(card, versions=[]))], ensure_ascii=False),
+        others=json.dumps([asdict(replace(c, versions=[])) for c in others], ensure_ascii=False),
     )
-    reply = agents.extract_json(agents.ask(cfg.agent, text, images=_read_images(review.entry)))
+    reply = agents.extract_json(agents.ask(agent or cfg.agent, text, images=_read_images(entry)))
     raw_versions = reply.get("versions")
     if not isinstance(raw_versions, list) or not raw_versions:
         raise agents.AgentError("The agent returned no versions")
+    made_from = {"question": card.question, "answer": card.answer}
     found = []
     for raw in raw_versions:
         if not isinstance(raw, dict) or not isinstance(raw.get("cards"), list):
             continue
         style = str(raw.get("style", "Alternative"))
-        cards = _own(review, [batch.Card.parse({**c, "group": style}) for c in raw["cards"][:3]])
+        cards = [
+            batch.Card.parse({**c, "group": style, "source_id": entry.id, "made_from": made_from})
+            for c in raw["cards"][:3]
+            if isinstance(c, dict)
+        ]
         if cards:
             found.append(Version(style, str(raw.get("why", "")), cards))
     if not found:
         raise agents.AgentError("The agent's versions had no usable cards")
-    slot.versions = found
+    return found
+
+
+def versions(cfg: Config, review: Review, index: int) -> list[Version]:
+    """Versions for one card of the canvas. Asking again replaces the earlier versions but keeps the
+    Original and anything other moves proposed."""
+    slot = review.slots[index]
+    found = make_versions(cfg, review.entry, slot.card, [c for i, c in enumerate(review.cards) if i != index])
+    slot.versions = found + [v for v in slot.versions if v.style == "Original" or v.move not in ("", "versions")]
     return found
 
 
@@ -200,16 +213,17 @@ def apply_move(cfg: Config, review: Review, index: int, move_id: str) -> None:
         [],
         _read_images(entry),
         entry.language or cfg.language,
+        slot.card.made_from,
     )
     review._record(f"card {index + 1} ({slot.card.question}): used the {move.name} move")
     raw_card = reply.get("card")
     if move.mode == moves.CHANGE and isinstance(raw_card, dict) and raw_card.get("question") and raw_card.get("answer"):
-        card = batch.Card.parse({**asdict(slot.card), **raw_card, "versions": [], "changed": True})
+        card = batch.Card.parse({**asdict(slot.card), **raw_card, "versions": [], "changed": True, "made_from": before})
         original = Version("Original", "The card before this move.", [replace(slot.card, versions=[])])
         review.slots[index] = Slot(card, versions=[original, *slot.versions], made_by=move_id, before=before)
         return
     new = [
-        batch.Card.parse({**raw, "source_id": entry.id, "changed": True, "group": move_id})
+        batch.Card.parse({**raw, "source_id": entry.id, "changed": True, "group": move_id, "made_from": before})
         for raw in (reply.get("new_cards") or [])[:4]
         if isinstance(raw, dict) and raw.get("question") and raw.get("answer")
     ]

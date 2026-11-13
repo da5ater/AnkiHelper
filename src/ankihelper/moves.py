@@ -223,7 +223,9 @@ def record_example(move_id: str, before: dict, result: dict) -> None:
     _change(move_id, edit)
 
 
-def run(cfg: Config, move_id: str, card: dict, original: dict, messages: list[dict], images: list[str], language: str) -> dict:
+def run(
+    cfg: Config, move_id: str, card: dict, original: dict, messages: list[dict], images: list[str], language: str, made_from: dict | None = None
+) -> dict:
     """Do the move on one card. Returns {"reply", and "card" (CHANGE) or "new_cards" (ADD)}."""
     move = get(move_id)
     text = agents.prompt(
@@ -237,6 +239,7 @@ def run(cfg: Config, move_id: str, card: dict, original: dict, messages: list[di
         answer_style=ANSWER_STYLE,
         original=json.dumps(original, ensure_ascii=False),
         card=json.dumps(card, ensure_ascii=False),
+        made_from=json.dumps(made_from, ensure_ascii=False) if made_from else "(none: this is an original card)",
         messages="\n".join(f"{m['role']}: {m['text']}" for m in messages[-20:]) or "(none)",
     )
     reply = agents.extract_json(agents.ask(cfg.agent, text, timeout=900 if move.web else 600, images=images, web=move.web))

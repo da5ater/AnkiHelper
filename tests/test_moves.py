@@ -216,3 +216,13 @@ def test_leetcode_it_can_answer_that_no_real_problem_fits(monkeypatch):
     monkeypatch.setattr(agents, "ask", agent_replying({"reply": "No real problem fits find_each; try Make it a scenario.", "new_cards": []}))
     turn = bridge.run_move(Config(), 5, "leetcode", "<p>find_each vs all.each?</p>", "<p>batches</p>", [], None)
     assert "new_cards" not in turn and "scenario" in turn["reply"]
+
+
+def test_a_card_added_in_anki_remembers_its_source_for_later_moves(monkeypatch):
+    bridge.record_added(Config(), 7, 8, {"question": "Given this code, what prints?", "answer": "x", "tags": ["ah::group::versions"]}, {"question": "<p>What does alias bind?</p>", "answer": "<p>a name</p>"})
+    seen = []
+    monkeypatch.setattr(agents, "ask", agent_replying({"reply": "ok", "card": {"question": "Q?", "answer": "A"}}, seen))
+
+    bridge.run_move(Config(), 8, "word", "<p>Given this code, what prints?</p>", "<p>x</p>", [], None)
+
+    assert "What does alias bind?" in seen[0]["text"]

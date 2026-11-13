@@ -81,6 +81,8 @@ def cmd_anki(args) -> int:
             reply = {"ok": True}
         elif args.action == "chat":
             reply = bridge.chat(cfg, note(), request["question_html"], request["answer_html"], request["messages"], request.get("draft"))
+        elif args.action == "added":
+            reply = bridge.record_added(cfg, note(), int(request["new_note_id"]), request["card"], request["made_from"])
         elif args.action == "chat-done":
             reply = bridge.finish_chat(
                 cfg,
@@ -186,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     anki_parser = sub.add_parser("anki", help="requests from the AnkiHelper add-on inside Anki (JSON on stdin)")
     anki_parser.add_argument(
         "action",
-        choices=["optimize", "event", "chat", "chat-done", "moves", "move", "move-draft", "move-save", "move-teach", "move-update", "history", "use-version"],
+        choices=["optimize", "event", "chat", "added", "chat-done", "moves", "move", "move-draft", "move-save", "move-teach", "move-update", "history", "use-version"],
     )
     anki_parser.set_defaults(func=cmd_anki)
     sub.add_parser("moves-nudge", help="suggest moves from requests you keep making in conversations").set_defaults(func=cmd_moves_nudge)

@@ -48,6 +48,22 @@ def _messages_text(messages: list[dict]) -> str:
     )
 
 
+def _made_from(record: dict | None) -> str:
+    made_from = (record or {}).get("card", {}).get("made_from")
+    return json.dumps(made_from, ensure_ascii=False) if made_from else "(none: this is an original card)"
+
+
+def record_added(cfg: Config, source_note: int, note_id: int, card: dict, made_from_html: dict) -> dict:
+    """The learner added a card from the F window: remember which card it was made from, so the agent can
+    go back to it when the learner works on the new card later."""
+    record = notes.find(source_note)
+    entry = Entry(**record["entry"]) if record else Entry.new(text_of(made_from_html["question"]), text_of(made_from_html["answer"]), "")
+    made_from = {"question": text_of(made_from_html["question"]), "answer": text_of(made_from_html["answer"])}
+    group = next((t.split("::")[-1] for t in card.get("tags") or [] if t.startswith("ah::group::")), "chat")
+    notes.record(note_id, entry, Card.parse({**card, "source_id": entry.id, "changed": True, "group": group, "made_from": made_from}))
+    return {"ok": True}
+
+
 def _pictures(messages: list[dict]) -> list[str]:
     return [path for m in messages[-30:] for path in m.get("images") or []]
 
@@ -91,6 +107,7 @@ def chat(cfg: Config, note_id: int, question_html: str, answer_html: str, messag
         original=json.dumps({"question": entry.question, "answer": entry.answer} if entry else {}, ensure_ascii=False),
         card=json.dumps({"question": text_of(question_html), "answer": text_of(answer_html)}, ensure_ascii=False),
         draft=json.dumps(draft or {}, ensure_ascii=False),
+        made_from=_made_from(record),
         messages=_messages_text(messages),
     )
     reply = agents.extract_json(agents.ask(cfg.agent, text, images=_pictures(messages)))
@@ -102,7 +119,7 @@ def run_move(cfg: Config, note_id: int, move_id: str, question_html: str, answer
     record, entry, language = _context(cfg, note_id)
     card = draft or {"question": text_of(question_html), "answer": text_of(answer_html)}
     original = {"question": entry.question, "answer": entry.answer} if entry else {}
-    reply = moves.run(cfg, move_id, card, original, messages, _pictures(messages), language)
+    reply = moves.run(cfg, move_id, card, original, messages, _pictures(messages), language, (record or {}).get("card", {}).get("made_from"))
     return _render_reply(reply, record, entry, question_html, answer_html, move_id)
 
 

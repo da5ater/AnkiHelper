@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QComboBox, QCompleter, QHBoxLayout, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QComboBox, QCompleter, QHBoxLayout, QPushButton, QVBoxLayout
 
 from .. import config, dictation, inbox
 from ..anki import AnkiConnect, AnkiError, AnkiUnreachable
@@ -83,6 +83,10 @@ class CapturePage(Page):
         topic_col.addWidget(self.deck_hint)
         language_col.addWidget(label("CARD LANGUAGE", "fieldLabel"))
         language_col.addWidget(self.language)
+        self.make_versions = QCheckBox("✨ Make versions")
+        self.make_versions.setToolTip("The batch also writes 3 or 4 versions of each card (why, scenario, compare, reverse…) and imports them all")
+        self.make_versions.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        language_col.addWidget(self.make_versions)
         language_col.addStretch()
         topic_row = QHBoxLayout()
         topic_row.setSpacing(14)
@@ -152,6 +156,7 @@ class CapturePage(Page):
         language = self.language.currentText().strip()
         entry.language = language if language and language != self.cfg.language else None
         entry.images = self._save_images(entry.id) or None
+        entry.versions = self.make_versions.isChecked()
         inbox.append(entry)
         self.cfg.last_topic = topic
         self.cfg.last_language = language
@@ -162,6 +167,7 @@ class CapturePage(Page):
             return
         self.question.clear()
         self.answer.clear()
+        self.make_versions.setChecked(False)
         for strip in self.strips.values():
             strip.clear()
         self._flash("✓ Saved to your inbox", theme.GREEN, self.question)

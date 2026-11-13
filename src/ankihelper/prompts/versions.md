@@ -15,6 +15,8 @@ Every version still follows the card rules: focused, precise, consistent, tracta
 
 {answer_style}
 
+Every card must make sense on its own, months later, with nothing else in view. When the knowledge is about code (how a method, class, keyword or command behaves), the front shows that code in a fenced code block, the setup only, with nothing that gives the answer away, and the question asks about it ("Given this code, what does `Microwave.new.describe` return?"). Never name a class, method or variable on the front that the front does not show or explain: write the code that defines it. The back gives the answer first, then explains why.
+
 Use Bloom's taxonomy (remember, understand, apply, analyze, evaluate, create) to climb: at least two versions must work at a higher level than the card has now (for example turn a "which service" recall card into an apply scenario or an analyze "what breaks if" card). Label every card with its level in "bloom". Every card still needs one consistent answer.
 
 For each version, write one short sentence on why this strategy could make the card easier to remember or more useful for this learner.

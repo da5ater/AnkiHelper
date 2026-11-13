@@ -227,8 +227,9 @@ class VersionNode(QFrame):
     use = Signal(int, int)
     add = Signal(int, int)
     dismiss = Signal(int, int)
+    redo = Signal(int)
 
-    def __init__(self, index: int, number: int, version: review.Version, entry: inbox.Entry, locked: bool):
+    def __init__(self, index: int, number: int, version: review.Version, entry: inbox.Entry, locked: bool, first: bool = False):
         super().__init__()
         self.setObjectName("node")
         self.setProperty("kind", "version")
@@ -245,6 +246,11 @@ class VersionNode(QFrame):
         if version.added:
             header.addWidget(pill("✓ Added as a new card", theme.GREEN))
         header.addStretch()
+        if first:
+            redo = _small_button("↻ New versions", "Ask for a fresh set of versions of this card")
+            redo.setEnabled(not locked)
+            redo.clicked.connect(lambda: self.redo.emit(index))
+            header.addWidget(redo)
         layout.addLayout(header)
         if version.why:
             layout.addWidget(label(version.why, "muted", wrap=True))
@@ -490,8 +496,10 @@ class ReviewPage(Page):
                 node.move.connect(self.apply_move)
                 node.teach.connect(self.teach_move)
                 self.canvas.add(node, 1, source)
+                first = next((n for n, v in enumerate(slot.versions) if v.move == "versions"), None)
                 for number, version in enumerate(slot.versions):
-                    child = VersionNode(index, number, version, entry, self.busy)
+                    child = VersionNode(index, number, version, entry, self.busy, number == first)
+                    child.redo.connect(lambda i: self.apply_move(i, "versions"))
                     child.use.connect(lambda i, n: self._use(i, n, add=False))
                     child.add.connect(lambda i, n: self._use(i, n, add=True))
                     child.dismiss.connect(self._dismiss)

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ankihelper import agents, batch, config, inbox
+from ankihelper import agents, batch, config, inbox, notes
 from ankihelper.anki import AnkiConnect, AnkiUnreachable, SetupProblem
 from ankihelper.config import Config
 
@@ -375,3 +375,22 @@ def test_imported_notes_are_indexed_with_their_entry(setup, agent):
     record = notes.find(1)
     assert record["entry"]["question"] == "what is a gem" and record["card"]["question"] == "What is a gem?"
     assert [r["note_id"] for r in notes.siblings(entry.id)] == [1]
+
+
+def test_a_note_ticked_make_versions_imports_every_version_with_its_source(setup, fake_anki, agent, monkeypatch):
+    cfg, anki = setup
+    entry = inbox.Entry.new("what does alias do", "binds a name to a method", "ruby")
+    entry.versions = True
+    inbox.append(entry)
+    capture("what does git stash do", "", "git")
+    clean = agents.ask
+    versions = {"versions": [{"style": "Reverse", "why": "", "cards": [{"question": "Which keyword binds a second name?", "answer": "alias"}]}]}
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: json.dumps(versions) if "VERSIONS" in text else clean(name, text, timeout, images))
+
+    summary = batch.run(cfg, anki)
+
+    assert summary.imported == 3, "the ticked note's card, its version, and the other note's card"
+    version = next(n for n in fake_anki.notes if "Which keyword" in n["fields"]["Front"])
+    assert "ah::group::reverse" in version["tags"]
+    record = next(r for r in notes._all() if r["card"]["question"] == "Which keyword binds a second name?")
+    assert record["card"]["made_from"]["question"] == "What does alias do?"

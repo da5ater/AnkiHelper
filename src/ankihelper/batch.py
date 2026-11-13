@@ -38,6 +38,8 @@ class Card:
     """Alternatives offered in Preview ({"style", "why", "cards"}), kept so History in Anki can switch to them."""
     pictures: list[str] = field(default_factory=list)
     """Screenshots a move rendered for this card (file names in AnkiHelper's media folder), shown on the front."""
+    made_from: dict = field(default_factory=dict)
+    """The card this one was made from ({"question", "answer"}) by Versions or a move, so the agent can go back to it."""
 
     @classmethod
     def parse(cls, raw) -> "Card":
@@ -63,6 +65,7 @@ class Card:
             group,
             versions,
             pictures,
+            raw["made_from"] if isinstance(raw.get("made_from"), dict) else {},
         )
 
 
@@ -221,6 +224,24 @@ def replace_source(anki: AnkiConnect, entry: Entry, card: Card) -> str:
     return "imported"
 
 
+def with_versions(cfg: Config, agent: str, entry: Entry, cards: list[Card]) -> list[Card]:
+    """The learner ticked Make versions when capturing: add every version of each main card right after it."""
+    from . import review
+
+    out = []
+    for card in cards:
+        out.append(card)
+        if card.group != "main":
+            continue
+        others = [c for c in cards if c is not card]
+        try:
+            found = review.make_versions(cfg, entry, card, others, agent)
+        except agents.AgentError:
+            continue
+        out.extend(c for version in found for c in version.cards)
+    return out
+
+
 def import_card(anki: AnkiConnect, cfg: Config, agent: str, entry: Entry, deck: str, card: Card) -> tuple[str, Card]:
     """Returns ("imported" | "duplicate", final card). Raises AnkiError once repairs are exhausted."""
     for attempt in range(REPAIR_ATTEMPTS + 1):
@@ -288,7 +309,11 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
     if fields[:2] != ["Front", "Back"]:
         raise SetupProblem(f"Note type {cfg.note_type!r} must have fields Front, Back (has {fields})")
 
+    fresh = {e.id for e in entries if not e.cards}
     cards, skipped = _clean_all(agent, cfg.language, entries, summary)
+    for entry in entries:
+        if entry.versions and entry.id in fresh and entry.id in cards:
+            cards[entry.id] = with_versions(cfg, agent, entry, cards[entry.id])
     done: set[str] = set()
     archived: list[dict] = []
     leftovers: dict[str, list[dict]] = {}

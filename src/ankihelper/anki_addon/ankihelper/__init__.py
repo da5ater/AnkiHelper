@@ -531,8 +531,11 @@ class FixDialog(QDialog):
         card["added"] = True
         self.added.append(card)
 
+        made_from = {"question": self.draft_html[0], "answer": self.draft_html[1]} if self.draft_html else self.before
+
         def done(_changes) -> None:
             tooltip("Added to Anki.")
+            call("added", {"note_id": self.note.id, "new_note_id": new.id, "card": {k: card[k] for k in ("question", "answer", "tags") if k in card}, "made_from": made_from})
             self.bubbles = [b.replace(f"<a href='add:{index}'>＋ Add to Anki</a>", "✓ Added to Anki") for b in self.bubbles]
             self._render_chat()
 

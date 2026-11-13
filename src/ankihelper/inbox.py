@@ -28,6 +28,8 @@ class Entry:
     """Full deck name when it is not under the root deck (an optimized card stays in its own deck)."""
     replace_source: bool = False
     """Rewrite the source note in place with the first accepted card instead of leaving it next to the new ones."""
+    versions: bool = False
+    """The learner ticked Make versions: the batch also imports every version of each main card."""
     images: list[dict] | None = None
     """Pasted pictures: {"file": name in config.media_dir(), "field": "question" | "answer", "mode": "show" | "read"}.
     "show" pictures go on the card as visuals; "read" pictures hold the text the agent turns into the card."""

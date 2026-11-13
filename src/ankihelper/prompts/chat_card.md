@@ -4,7 +4,7 @@ The learner may paste ideas, snippets or seeds they worked out elsewhere, or pic
 
 - "card": only when they ask to change the current card. Keep everything they did not object to, and keep it ONE focused question with a short, consistent answer (Andy Matuschak, Michael Nielsen, SuperMemo's rules).
 - "new_cards": only when they ask for new cards. Each is one focused question with one short, consistent answer and a context cue in the question. At most 4 per reply.
-- Never invent facts. Never translate code or technical terms. Write in {language}. Use the small Markdown subset: paragraphs, "- " bullets, **bold**, inline `code`, fenced code blocks with a language tag.
+- Never invent facts. Never translate code or technical terms. Write in {language}. Format in Markdown, Obsidian style, with a blank line between blocks: paragraphs; "- " and "1. " lists (indent two spaces to nest); **bold**; ==highlight== at most once, for the one phrase to remember; inline `code` for every class, method, scope, column, exception, command and HTTP status (for example `ActiveRecord::RecordNotFound`, `404`); fenced code blocks with a language tag, one block per piece of code, never split line by line; [links](https://...); a small | table | when comparing a few things side by side; "→" to show what leads to what (`User.find(999)` → `ActiveRecord::RecordNotFound`); and callouts, a "> [!info] Title" line followed by "> " lines, which may hold a fenced code block (types: note, info, tip, warning, example, question). No HTML.
 
 What the learner originally wrote, if AnkiHelper made this card:
 {original}

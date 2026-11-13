@@ -1,6 +1,8 @@
-"""Turn the agent's small Markdown subset into Anki HTML.
+"""Turn the agent's Markdown into Anki HTML.
 
-Supported: fenced code blocks (```lang), inline `code`, **bold**, "- " bullet lists, paragraphs.
+Supported, Obsidian style: fenced code blocks (```lang), inline `code`, **bold**, *italic*, ==highlight==,
+~~strike~~, links, "- " and "1. " lists (nested by indentation), tables, headings, rules, blockquotes and
+callouts ("> [!tip] Title"), which may hold code blocks of their own.
 Code is highlighted with Pygments inline styles so it renders the same on desktop and AnkiDroid.
 """
 
@@ -21,30 +23,167 @@ QUESTION_BOX = "font-weight:600; line-height:1.35"
 _formatter = HtmlFormatter(style="monokai", noclasses=True, nowrap=True)
 
 
+CALLOUTS = {
+    "note": ("#448aff", "✎"),
+    "info": ("#448aff", "ℹ"),
+    "todo": ("#448aff", "☐"),
+    "abstract": ("#00b0ff", "📋"),
+    "summary": ("#00b0ff", "📋"),
+    "tldr": ("#00b0ff", "📋"),
+    "tip": ("#00bfa5", "💡"),
+    "hint": ("#00bfa5", "💡"),
+    "important": ("#00bfa5", "❗"),
+    "success": ("#00c853", "✓"),
+    "check": ("#00c853", "✓"),
+    "done": ("#00c853", "✓"),
+    "question": ("#ec7500", "?"),
+    "help": ("#ec7500", "?"),
+    "faq": ("#ec7500", "?"),
+    "warning": ("#ff9100", "⚠"),
+    "caution": ("#ff9100", "⚠"),
+    "attention": ("#ff9100", "⚠"),
+    "failure": ("#ff5252", "✕"),
+    "fail": ("#ff5252", "✕"),
+    "missing": ("#ff5252", "✕"),
+    "danger": ("#ff1744", "⚡"),
+    "error": ("#ff1744", "⚡"),
+    "bug": ("#f50057", "🐞"),
+    "example": ("#7c4dff", "≡"),
+    "quote": ("#9e9e9e", "❝"),
+    "cite": ("#9e9e9e", "❝"),
+}
+CALLOUT_HEAD = re.compile(r"^\[!(\w+)\][+-]?[ \t]*(.*)$")
+LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
+HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+RULE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
+TABLE_DIVIDER = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+CELL = "border: 1px solid rgba(136, 136, 136, 0.4); padding: 0.3em 0.6em; text-align: left; vertical-align: top;"
+MARK = "background: rgba(255, 208, 0, 0.4); color: inherit; padding: 0 2px; border-radius: 3px;"
+
+
+def _rgb(color: str) -> str:
+    return ", ".join(str(int(color[i : i + 2], 16)) for i in (1, 3, 5))
+
+
 def _inline(text: str) -> str:
-    parts = re.split(r"(`[^`\n]+`)", text)
-    out = []
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) > 1:
-            out.append(f"<code>{html.escape(part[1:-1])}</code>")
+    """Inline Markdown, Obsidian style: `code`, **bold**, *italic*, ==highlight==, ~~strike~~ and [links](url).
+    Code is set aside first so bold can wrap it (**`find`**) and nothing inside code is formatted."""
+    codes: list[str] = []
+
+    def keep(match: re.Match) -> str:
+        codes.append(f"<code>{html.escape(match.group(1))}</code>")
+        return f"\x00{len(codes) - 1}\x00"
+
+    out = html.escape(re.sub(r"`([^`\n]+)`", keep, text))
+    out = re.sub(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)", r'<a href="\2">\1</a>', out)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
+    out = re.sub(r"(?<![*\w])\*(?![\s*])(.+?)(?<![\s*])\*(?![*\w])", r"<em>\1</em>", out)
+    out = re.sub(r"==(?!\s)(.+?)(?<!\s)==", rf'<mark style="{MARK}">\1</mark>', out)
+    out = re.sub(r"~~(.+?)~~", r"<s>\1</s>", out)
+    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))], out)
+
+
+def _callout(lines: list[str]) -> str:
+    body = [re.sub(r"^\s*> ?", "", line) for line in lines]
+    head = CALLOUT_HEAD.match(body[0])
+    if not head:
+        return f'<blockquote style="border-left: 3px solid rgba(136, 136, 136, 0.6); margin: 0.6em 0; padding: 0.1em 0.9em; opacity: 0.9; text-align: left;">{to_html(chr(10).join(body))}</blockquote>'
+    kind = head.group(1).lower()
+    color, icon = CALLOUTS.get(kind, CALLOUTS["note"])
+    title = head.group(2).strip() or kind.capitalize()
+    inner = to_html("\n".join(body[1:]))
+    return (
+        f'<div style="border-left: 4px solid {color}; background: rgba({_rgb(color)}, 0.1); border-radius: 6px; '
+        f'padding: 0.5em 0.9em; margin: 0.6em 0; text-align: left;">'
+        f'<div style="font-weight: 700; color: {color};">{icon} {_inline(title)}</div>{inner}</div>'
+    )
+
+
+def _cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _table(lines: list[str]) -> str:
+    head = "".join(f'<th style="{CELL}">{_inline(c)}</th>' for c in _cells(lines[0]))
+    rows = "".join("<tr>" + "".join(f'<td style="{CELL}">{_inline(c)}</td>' for c in _cells(line)) + "</tr>" for line in lines[2:])
+    return f'<table style="border-collapse: collapse; margin: 0.6em 0;"><tr>{head}</tr>{rows}</table>'
+
+
+def _list(items: list[tuple[int, str, str]]) -> str:
+    """Bullet and numbered lists; deeper indentation nests a list inside the item above it."""
+    out: list[str] = []
+    stack: list[tuple[int, str]] = []
+    for indent, tag, text in items:
+        while stack and indent < stack[-1][0]:
+            out.append(f"</li></{stack.pop()[1]}>")
+        if stack and indent == stack[-1][0]:
+            out.append("</li>")
         else:
-            escaped = html.escape(part)
-            escaped = re.sub(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)", r'<a href="\2">\1</a>', escaped)
-            out.append(re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped))
+            out.append(f"<{tag}>")
+            stack.append((indent, tag))
+        out.append("<li>" + text)
+    while stack:
+        out.append(f"</li></{stack.pop()[1]}>")
     return "".join(out)
 
 
+def _starts_block(lines: list[str], i: int) -> bool:
+    line = lines[i]
+    return bool(
+        line.lstrip().startswith(">")
+        or LIST_ITEM.match(line)
+        or HEADING.match(line)
+        or RULE.match(line)
+        or (line.lstrip().startswith("|") and i + 1 < len(lines) and TABLE_DIVIDER.match(lines[i + 1]))
+    )
+
+
 def _prose(text: str) -> str:
-    out = []
-    for block in re.split(r"\n\s*\n", text.strip()):
-        lines = [line for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        if all(re.match(r"\s*[-*] ", line) for line in lines):
-            items = "".join("<li>" + _inline(re.sub(r"^\s*[-*] ", "", line)) + "</li>" for line in lines)
-            out.append(f"<ul>{items}</ul>")
+    lines = text.strip("\n").splitlines()
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+        elif line.lstrip().startswith(">"):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith(">"):
+                j += 1
+            out.append(_callout(lines[i:j]))
+            i = j
+        elif line.lstrip().startswith("|") and i + 1 < len(lines) and TABLE_DIVIDER.match(lines[i + 1]):
+            j = i + 2
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                j += 1
+            out.append(_table(lines[i:j]))
+            i = j
+        elif heading := HEADING.match(line):
+            size = {1: "1.2em", 2: "1.1em"}.get(len(heading.group(1)), "1em")
+            out.append(f'<div style="font-weight: 700; font-size: {size}; margin: 0.6em 0 0.3em;">{_inline(heading.group(2))}</div>')
+            i += 1
+        elif RULE.match(line):
+            out.append('<hr style="border: none; border-top: 1px solid rgba(136, 136, 136, 0.4);">')
+            i += 1
+        elif LIST_ITEM.match(line):
+            items: list[tuple[int, str, str]] = []
+            while i < len(lines) and lines[i].strip():
+                item = LIST_ITEM.match(lines[i])
+                if item:
+                    tag = "ol" if item.group(2)[0].isdigit() else "ul"
+                    items.append((len(item.group(1).expandtabs(4)), tag, _inline(item.group(3))))
+                elif lines[i].startswith((" ", "\t")):
+                    indent, tag, text = items[-1]
+                    items[-1] = (indent, tag, text + "<br>" + _inline(lines[i].strip()))
+                else:
+                    break
+                i += 1
+            out.append(_list(items))
         else:
-            out.append("<p>" + "<br>".join(_inline(line) for line in lines) + "</p>")
+            j = i + 1
+            while j < len(lines) and lines[j].strip() and not _starts_block(lines, j):
+                j += 1
+            out.append("<p>" + "<br>".join(_inline(part) for part in lines[i:j]) + "</p>")
+            i = j
     return "".join(out)
 
 

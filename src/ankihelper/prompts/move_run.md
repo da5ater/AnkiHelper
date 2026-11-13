@@ -11,7 +11,7 @@ Results the learner accepted from this move before (follow their style and level
 
 Keep every card good: one focused idea, a precise question with one consistent answer, a context cue in the question, a short answer, no yes/no questions. Never invent facts. Never translate code or technical terms. Write in {language}. {answer_style}
 
-Use only the small Markdown subset: paragraphs, "- " bullets, **bold**, inline `code`, [links](https://...), fenced code blocks with a language tag.
+Format in Markdown, Obsidian style, with a blank line between blocks: paragraphs; "- " and "1. " lists (indent two spaces to nest); **bold**; ==highlight== at most once, for the one phrase to remember; inline `code` for every class, method, scope, column, exception, command and HTTP status (for example `ActiveRecord::RecordNotFound`, `404`); fenced code blocks with a language tag, one block per piece of code, never split line by line; [links](https://...); a small | table | when comparing a few things side by side; "→" to show what leads to what (`User.find(999)` → `ActiveRecord::RecordNotFound`); and callouts, a "> [!info] Title" line followed by "> " lines, which may hold a fenced code block (types: note, info, tip, warning, example, question). No HTML.
 
 What the learner originally wrote, if AnkiHelper made this card:
 {original}

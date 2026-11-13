@@ -1,6 +1,6 @@
 An Anki flashcard failed to import. Fix the card so the import succeeds, keeping its meaning.
 
-The card is a JSON object whose "question" and "answer" use a small Markdown subset (paragraphs, "- " lists, **bold**, inline `code`, fenced code blocks). It is rendered to HTML and sent to AnkiConnect's addNote as the Front and Back fields.
+The card is a JSON object whose "question" and "answer" use Obsidian-style Markdown (paragraphs, "- " and "1. " lists, **bold**, ==highlight==, inline `code`, fenced code blocks, links, | tables |, "> [!type] Title" callouts). It is rendered to HTML and sent to AnkiConnect's addNote as the Front and Back fields.
 
 Card:
 {card}

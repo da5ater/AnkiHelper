@@ -61,3 +61,24 @@ def test_links_render_and_other_brackets_stay_text():
     out = render.to_html("See [LeetCode 347: Top K](https://leetcode.com/problems/top-k-frequent-elements/) and [not a link].")
     assert '<a href="https://leetcode.com/problems/top-k-frequent-elements/">LeetCode 347: Top K</a>' in out
     assert "[not a link]" in out
+
+
+def test_bold_can_wrap_inline_code():
+    assert render.to_html("- **`find`**: by primary key") == "<ul><li><strong><code>find</code></strong>: by primary key</li></ul>"
+
+
+def test_callouts_hold_text_and_their_own_code_block():
+    html = render.to_html("> [!info] Already in the project\n> A scope:\n> ```ruby\n> scope :visible, -> { where(hidden: false) }\n> ```")
+    assert "ℹ Already in the project" in html and "<p>A scope:</p>" in html
+    assert 'class="highlight"' in html and "&gt;" not in html.split("highlight")[0]
+
+
+def test_obsidian_highlights_tables_and_nested_numbered_lists():
+    assert '<mark style="' in render.to_html("the ==key idea== here")
+    table = render.to_html("| method | returns |\n|---|---|\n| `find` | record |")
+    assert "<table" in table and "<th" in table and "<code>find</code>" in table
+    assert render.to_html("1. one\n  - sub\n2. two") == "<ol><li>one<ul><li>sub</li></ul></li><li>two</li></ol>"
+
+
+def test_a_list_right_after_a_line_of_text_is_still_a_list():
+    assert render.to_html("Three ways:\n- a\n- b") == "<p>Three ways:</p><ul><li>a</li><li>b</li></ul>"

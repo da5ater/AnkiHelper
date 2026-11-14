@@ -48,10 +48,36 @@ def _hex_dir() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "hex"
 
 
-def hex_control(command: str, timeout: float = 2, **fields) -> dict | None:
-    """One command to the running Hex over its local API; None when Hex is not running or not answering."""
+def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def hex_control(command: str, timeout: float = 0.5, **fields) -> dict | None:
+    """One command to the running Hex over its local API; None when Hex is not running or not answering.
+
+    Hex leaves its discovery file behind when it quits, and on Windows a connection to the closed port takes
+    about 2 s to fail, so a dead pid answers None without connecting."""
     try:
         api = json.loads((_hex_dir() / "local-api.json").read_text(encoding="utf-8"))
+        if not _alive(int(api["pid"])):
+            return None
         request = urllib.request.Request(
             f"http://127.0.0.1:{api['port']}/control",
             data=json.dumps({"version": 4, "command": command, **fields}).encode(),
@@ -74,7 +100,7 @@ def hex_state() -> MicState | None:
 
 
 def toggle_hex() -> None:
-    hex_control("dictation", action="toggle")
+    hex_control("dictation", timeout=5, action="toggle")
 
 
 def finish_hex() -> str:

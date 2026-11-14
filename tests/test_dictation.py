@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+import time
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -30,7 +34,7 @@ def fake_hex(tmp_path, monkeypatch):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    (tmp_path / "local-api.json").write_text(json.dumps({"port": server.server_address[1], "token": "secret", "pid": 1}))
+    (tmp_path / "local-api.json").write_text(json.dumps({"port": server.server_address[1], "token": "secret", "pid": os.getpid()}))
     monkeypatch.setattr(dictation, "_hex_dir", lambda: tmp_path)
     yield hex_state
     server.shutdown()
@@ -69,3 +73,14 @@ def test_finishing_hex_returns_the_transcript_instead_of_pasting(fake_hex):
 
     fake_hex["reply"] = {"version": 4, "status": "error", "code": "no-speech", "message": "no speech"}
     assert dictation.get("hex").finish() == ""
+
+
+def test_a_quit_hex_answers_at_once_without_connecting(fake_hex, tmp_path):
+    gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True).stdout.strip()
+    api = json.loads((tmp_path / "local-api.json").read_text())
+    (tmp_path / "local-api.json").write_text(json.dumps({**api, "pid": int(gone)}))
+
+    started = time.perf_counter()
+    assert dictation.get("hex").state() is None
+    assert time.perf_counter() - started < 0.2
+    assert fake_hex["commands"] == [], "nothing was sent to the leftover port"

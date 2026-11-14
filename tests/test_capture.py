@@ -202,6 +202,10 @@ def test_mic_button_puts_the_spoken_text_where_the_cursor_is(window, monkeypatch
     engine = dictation.Method("fake", "Fake", "", state=lambda: "recording", toggle=lambda: calls.append("toggle"), finish=lambda: "spoken answer")
     window.engine = engine
     window._poll_mic()
+    for _ in range(100):
+        if window.mic.property("state") == "recording":
+            break
+        QTest.qWait(30)
     window.answer.setPlainText("Rails: ")
     window.answer.setFocus()
     window.answer.moveCursor(window.answer.textCursor().MoveOperation.End)
@@ -214,3 +218,20 @@ def test_mic_button_puts_the_spoken_text_where_the_cursor_is(window, monkeypatch
 
     assert window.answer.toPlainText() == "Rails: spoken answer"
     assert window.question.toPlainText() == "" and calls == []
+
+
+def test_a_slow_dictation_engine_never_freezes_the_window(window):
+    import time
+
+    from ankihelper import dictation
+
+    window.engine = dictation.Method("slow", "Slow", "", state=lambda: time.sleep(1) or "idle", toggle=lambda: None)
+    started = time.perf_counter()
+    window._poll_mic()
+    window._poll_mic()
+    assert time.perf_counter() - started < 0.1, "the poll runs off the UI thread and does not stack up"
+    for _ in range(100):
+        if not window._polling:
+            break
+        QTest.qWait(30)
+    assert window.mic.isEnabled()

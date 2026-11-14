@@ -107,6 +107,7 @@ class CapturePage(Page):
 
         self.mic_timer = QTimer(self)
         self.mic_timer.timeout.connect(self._poll_mic)
+        self._polling = False
         self.refresh_dictation()
 
     def shown(self) -> None:
@@ -131,7 +132,17 @@ class CapturePage(Page):
         QTimer.singleShot(150, self._poll_mic)
 
     def _poll_mic(self) -> None:
-        state = self.engine.state()
+        """Asks the engine off the UI thread, one question at a time, so a slow engine never freezes typing."""
+        if self._polling or not (self.engine and self.engine.state):
+            return
+        self._polling = True
+        engine = self.engine
+        run_async(engine.state, lambda state: self._show_mic(engine, state), lambda _error: self._show_mic(engine, None))
+
+    def _show_mic(self, engine, state) -> None:
+        self._polling = False
+        if engine is not self.engine:
+            return
         self.mic.setEnabled(state is not None)
         self.mic.setToolTip(f"{self.engine.title} is not running" if state is None else f"{self.engine.title} is {state}. Click to toggle.")
         state = state or "idle"

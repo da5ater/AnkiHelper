@@ -82,3 +82,9 @@ def test_obsidian_highlights_tables_and_nested_numbered_lists():
 
 def test_a_list_right_after_a_line_of_text_is_still_a_list():
     assert render.to_html("Three ways:\n- a\n- b") == "<p>Three ways:</p><ul><li>a</li><li>b</li></ul>"
+
+
+def test_hidden_code_with_double_colons_does_not_become_an_anki_hint():
+    html = render.to_html("`find` {{c1::raises `ActiveRecord::RecordNotFound`}} and {{c2::nil::what}}")
+    assert "{{c1::raises <code>ActiveRecord&#58;&#58;RecordNotFound</code>}}" in html
+    assert "{{c2::nil::what}}" in html

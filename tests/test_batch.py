@@ -394,3 +394,17 @@ def test_a_note_ticked_make_versions_imports_every_version_with_its_source(setup
     assert "ah::group::reverse" in version["tags"]
     record = next(r for r in notes._all() if r["card"]["question"] == "Which keyword binds a second name?")
     assert record["card"]["made_from"]["question"] == "What does alias do?"
+
+
+def test_a_cloze_card_goes_in_as_a_cloze_note(setup, fake_anki, monkeypatch):
+    cfg, anki = setup
+    capture("make a cloze: find raises when the id is missing", "", "ruby")
+    reply = {"cards": [{"source_id": inbox.read_all()[0].id, "question": "`find` raises {{c1::`RecordNotFound`}} when the id is missing", "answer": "", "tags": []}]}
+    monkeypatch.setattr(agents, "ask", lambda name, text, timeout=600, images=None: json.dumps(reply))
+
+    assert batch.run(cfg, anki).imported == 1
+
+    [note] = fake_anki.notes
+    assert note["modelName"] == "Cloze"
+    assert note["fields"]["Text"] == "<p><code>find</code> raises {{c1::<code>RecordNotFound</code>}} when the id is missing</p>"
+    assert set(note["fields"]) == {"Text", "Back Extra"}

@@ -85,8 +85,13 @@ SCENARIO = (
 )
 
 LEETCODE = (
-    "Find one real problem from LeetCode, Codeforces or NeetCode whose best solution uses exactly the technique or "
-    "code on this card. Search the web: the sites themselves and well-known GitHub lists of frequently asked "
+    "Find one real problem from LeetCode, Codeforces or NeetCode where the card's technique or code has a natural, "
+    "useful role in a correct solution in the card's language. It need not be required by the best solution or "
+    "named in the problem statement. For language API cards, look for the underlying operation (such as case "
+    "conversion or capitalization checks), then use the API meaningfully in the solution. For cards comparing "
+    "return values or exceptions, explain how that distinction affects the implementation, including an input "
+    "that exposes the pitfall; do not claim the original problem asks about that language-specific behavior. "
+    "Search the web: the sites themselves and well-known GitHub lists of frequently asked "
     "interview problems (Blind 75, NeetCode 150, LeetCode Top Interview 150, company-tagged lists). Prefer a "
     "well-known, frequently asked problem, and open it to read exactly what it asks. "
     "Write one new card laid out the way LeetCode shows a problem, so the learner only has to write the function. "
@@ -97,9 +102,12 @@ LEETCODE = (
     "problem allows it; and one line asking to solve it with the card's technique, named. "
     "The back: the solution in a fenced code block, one bold-signaled bullet on where the technique does the "
     "work, and one on time and space complexity in inline code (`O(n log k)` time, `O(n)` space). "
-    "If no real problem genuinely needs this technique, for example a framework or database API such as Rails' "
-    "find_each, do not force one: return no new cards and say in the reply that no real problem fits this card "
-    "and that 🎬 Make it a scenario suits it."
+    "Keep the original problem's requirements and examples distinct from any added practice requirement or "
+    "language-specific pitfall. Do not force an unrelated technique into a solution or invent a catalog problem. "
+    "Only return no new cards after searching for both the specific technique and its underlying operation and "
+    "finding no meaningful fit, for example a framework-only database API such as Rails' find_each. In that case, "
+    "say you did not find a suitable match, briefly explain why the candidates do not exercise the card, and "
+    "suggest 🎬 Make it a scenario. Never claim the entire catalog has no match based on a limited search."
 )
 
 RETIRED = {"write"}

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import batch, config, inbox, moves, review
+from .. import batch, config, inbox, moves, render, review
 from ..anki import AnkiConnect
 from ..config import Config
 from . import theme
@@ -114,6 +114,14 @@ class SourceNode(QFrame):
             self.redo_all.emit(self.text.text().strip())
 
 
+def _shown(card: batch.Card, entry: inbox.Entry) -> tuple[str, str]:
+    """The card's two sides as Anki shows them; a cloze card hides its gaps on the front and fills them on the back."""
+    front, back = batch.card_html(card, entry)
+    if not card.is_cloze:
+        return front, back
+    return render.cloze_side(front, reveal=False), render.cloze_side(front, reveal=True) + (f"<hr>{back}" if card.answer.strip() else back)
+
+
 class CardNode(QFrame):
     accept = Signal(int)
     remove = Signal(int)
@@ -149,7 +157,7 @@ class CardNode(QFrame):
             faded.setStyleSheet(f"color: {theme.FAINT}; text-decoration: line-through;")
             layout.addWidget(faded)
         else:
-            front, back = batch.card_html(slot.card, entry)
+            front, back = _shown(slot.card, entry)
             layout.addWidget(_side("FRONT", theme.PINK, front))
             divider = QFrame()
             divider.setFixedHeight(1)
@@ -255,7 +263,7 @@ class VersionNode(QFrame):
         if version.why:
             layout.addWidget(label(version.why, "muted", wrap=True))
         for n, c in enumerate(version.cards, start=1):
-            front, back = batch.card_html(c, entry)
+            front, back = _shown(c, entry)
             if len(version.cards) > 1:
                 layout.addWidget(label(f"card {n} of {len(version.cards)}", "faint"))
             layout.addWidget(_side("FRONT", theme.PINK, front))
@@ -449,7 +457,10 @@ class ReviewPage(Page):
             self._say("These are the cards you saved. Change them, or ↻ Redo all to start over.")
             return
         self.review = review.Review(entry)
-        self._work(None, "Reading your note and writing cards…", lambda: review.generate(self.cfg, self.review))
+        if entry.versions:
+            self._work(None, "Writing cards and their versions…", lambda: (review.generate(self.cfg, self.review), review.auto_versions(self.cfg, self.review)))
+        else:
+            self._work(None, "Reading your note and writing cards…", lambda: review.generate(self.cfg, self.review))
 
     def _work(self, target: int | None, text: str, fn, on_done=None) -> None:
         """Run one agent call at a time; target is the card it concerns, None for the whole set, -1 for none."""

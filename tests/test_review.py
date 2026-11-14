@@ -152,3 +152,28 @@ def test_new_versions_replace_the_old_ones_but_keep_the_original_and_remember_th
 def test_versions_are_told_to_show_the_code_they_ask_about():
     text = agents.prompt("versions", language="English", answer_style="", entry="", cards="", others="")
     assert "the front shows that code in a fenced code block" in text
+
+
+def test_a_ticked_note_gets_its_versions_added_and_everything_accepted(monkeypatch):
+    entry = inbox.Entry.new("alias", "", "ruby")
+    entry.versions = True
+    session = _session_with(entry, "What does alias bind?")
+    monkeypatch.setattr(
+        agents,
+        "ask",
+        lambda name, text, timeout=600, images=None: json.dumps({"versions": [{"style": "Reverse", "why": "", "cards": [{"question": "Which keyword binds a name?", "answer": "alias"}]}]}),
+    )
+
+    review.auto_versions(Config(), session)
+
+    assert [s.card.question for s in session.slots] == ["What does alias bind?", "Which keyword binds a name?"]
+    assert all(s.status == review.ACCEPTED for s in session.slots)
+
+
+def test_cloze_cards_show_gaps_on_the_front_and_answers_on_the_back():
+    from ankihelper import render
+
+    html = render.to_html("`find` raises {{c1::`RecordNotFound`}} and {{c2::nothing::what else}}")
+    assert "[...]" in render.cloze_side(html, reveal=False) and "[what else]" in render.cloze_side(html, reveal=False)
+    assert "RecordNotFound" not in render.cloze_side(html, reveal=False)
+    assert "<code>RecordNotFound</code></span>" in render.cloze_side(html, reveal=True)

@@ -87,7 +87,8 @@ def _render_reply(reply: dict, record: dict | None, entry: Entry | None, questio
                 {
                     "question": card.question,
                     "answer": card.answer,
-                    "front": render.question_html(card.question) + render.images_html(card.pictures),
+                    "front": (render.to_html if card.is_cloze else render.question_html)(card.question) + render.images_html(card.pictures),
+                    "cloze": card.is_cloze,
                     "back": render.to_html(card.answer),
                     "tags": tags,
                     "media": [str(config.media_dir() / name) for name in card.pictures],

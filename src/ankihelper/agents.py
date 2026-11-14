@@ -88,7 +88,7 @@ AGENTS: dict[str, Agent] = {
             text=lambda images, web: [
                 "codex",
                 "exec",
-                *(["--search"] if web else []),
+                *(["--config", 'web_search="live"'] if web else []),
                 *[arg for image in images for arg in ("--image", image)],
                 "--skip-git-repo-check",
                 "--sandbox",

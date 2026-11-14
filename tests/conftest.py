@@ -21,6 +21,8 @@ class FakeAnki:
         if action == "deckNames":
             return sorted(self.decks)
         if action == "modelFieldNames":
+            if params["modelName"] == "Cloze":
+                return ["Text", "Back Extra"]
             if params["modelName"] != "Basic+":
                 raise ValueError("model was not found")
             return ["Front", "Back"]
@@ -29,10 +31,10 @@ class FakeAnki:
             return 1
         if action == "addNote":
             note = params["note"]
-            front = note["fields"]["Front"]
+            front = next(iter(note["fields"].values()))
             if self.reject_fronts_containing.lower() in front.lower():
                 raise ValueError("cannot create note because the front contains a forbidden marker")
-            if any(n["fields"]["Front"] == front for n in self.notes):
+            if any(next(iter(n["fields"].values())) == front for n in self.notes):
                 raise ValueError("cannot create note because it is a duplicate")
             if note["deckName"] not in self.decks:
                 raise ValueError(f"deck was not found: {note['deckName']}")

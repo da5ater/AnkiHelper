@@ -524,8 +524,16 @@ class FixDialog(QDialog):
         card = self.proposals[int(index)]
         if card.get("added") or self.deck_id is None:
             return
-        new = mw.col.new_note(self.note.note_type())
-        new[self.sides[0]], new[self.sides[1]] = card["front"], card["back"]
+        if card.get("cloze"):
+            model = mw.col.models.by_name("Cloze")
+            if not model:
+                tooltip("This card is a cloze, but your collection has no 'Cloze' note type.")
+                return
+            new = mw.col.new_note(model)
+            new.fields[0], new.fields[1] = card["front"], card["back"]
+        else:
+            new = mw.col.new_note(self.note.note_type())
+            new[self.sides[0]], new[self.sides[1]] = card["front"], card["back"]
         for tag in card.get("tags", []):
             new.add_tag(tag)
         card["added"] = True

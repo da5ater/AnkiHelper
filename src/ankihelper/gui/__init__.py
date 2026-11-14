@@ -21,6 +21,7 @@ from .common import label, pill
 from .inbox_page import InboxPage
 from .review_page import ReviewPage
 from .moves_page import MovesPage
+from .scrolling import FastScroll
 from .settings_page import SettingsPage
 from .setup_page import SetupPage
 
@@ -33,6 +34,9 @@ def make_app() -> QApplication:
     app.setApplicationName("AnkiHelper")
     app.setDesktopFileName(APP_ID)
     theme.apply(app)
+    if not app.property("fast_scroll"):
+        app.installEventFilter(FastScroll(app))
+        app.setProperty("fast_scroll", True)
     return app
 
 

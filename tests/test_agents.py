@@ -70,5 +70,6 @@ def test_web_access_adds_only_search_and_page_reading(monkeypatch):
 
     claude, codex, offline = seen
     assert claude[claude.index("--tools") + 1] == "WebSearch,WebFetch" == claude[claude.index("--allowedTools") + 1]
-    assert "--search" in codex and "read-only" in codex
+    assert codex[codex.index("--config") + 1] == 'web_search="live"'
+    assert "--search" not in codex and "read-only" in codex
     assert offline[offline.index("--tools") + 1] == ""

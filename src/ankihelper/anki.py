@@ -69,13 +69,13 @@ class AnkiConnect:
     def create_deck(self, name: str) -> None:
         self.invoke("createDeck", deck=name)
 
-    def add_note(self, deck: str, note_type: str, front: str, back: str, tags: list[str]) -> int:
+    def add_note(self, deck: str, note_type: str, front: str, back: str, tags: list[str], fields: tuple[str, str] = ("Front", "Back")) -> int:
         return self.invoke(
             "addNote",
             note={
                 "deckName": deck,
                 "modelName": note_type,
-                "fields": {"Front": front, "Back": back},
+                "fields": {fields[0]: front, fields[1]: back},
                 "tags": tags,
                 "options": {"allowDuplicate": False, "duplicateScope": "collection"},
             },

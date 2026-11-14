@@ -164,6 +164,32 @@ def make_versions(cfg: Config, entry: Entry, card: batch.Card, others: list[batc
     return found
 
 
+def version_targets(cards: list[batch.Card]) -> list[int]:
+    """Which cards a ticked note gets versions for: its main cards, or, when the agent wrote the questions
+    itself (the learner asked it to generate them), its first few cards."""
+    main = [i for i, c in enumerate(cards) if c.group == "main"]
+    return main or list(range(min(3, len(cards))))
+
+
+def auto_versions(cfg: Config, review: Review) -> None:
+    """The learner ticked Make versions: add every version of each target card right after it, and accept
+    everything, so the note is ready to import without clicking."""
+    for index in reversed(version_targets(review.cards)):
+        slot = review.slots[index]
+        try:
+            found = make_versions(cfg, review.entry, slot.card, [c for i, c in enumerate(review.cards) if i != index])
+        except agents.AgentError:
+            continue
+        for version in found:
+            version.move = "versions"
+        slot.versions = found
+        for version in reversed(found):
+            use_version(review, index, version, add=True)
+    for slot in review.slots:
+        if slot.status == PENDING:
+            slot.status = ACCEPTED
+
+
 def versions(cfg: Config, review: Review, index: int) -> list[Version]:
     """Versions for one card of the canvas. Asking again replaces the earlier versions but keeps the
     Original and anything other moves proposed."""

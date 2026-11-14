@@ -6,7 +6,7 @@ Propose 3 or 4 alternative VERSIONS of the card below. Each version replaces jus
 - Application / scenario: give a short realistic situation and ask what to use or do ("A team must audit every API call in their AWS account. Which service?").
 - Compare and contrast: ask how it differs from the thing it is most often confused with.
 - Reverse: give the description or symptom and ask for the name, command or concept.
-- Cloze: one key term blanked out of a precise statement, as "... [...] ...".
+- Cloze: one key term hidden in a precise statement, written as a real Anki cloze: {{c1::hidden term}} in "question", extra explanation in "answer" (may be empty). Never inside a fenced code block, never hiding text that contains "::".
 - Generate an example: ask the learner to produce an example or instance.
 - Atomic facts: one tiny card per fact, each with a context cue, for material that is a list.
 - Interview: phrased the way an interviewer would ask it, answered the way a strong candidate would in one or two lines.

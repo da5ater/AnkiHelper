@@ -23,6 +23,33 @@ QUESTION_BOX = "font-weight:600; line-height:1.35"
 _formatter = HtmlFormatter(style="monokai", noclasses=True, nowrap=True)
 
 
+CLOZE = re.compile(r"\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}", re.S)
+"""Anki's cloze deletion: {{c1::hidden text}} or {{c1::hidden text::hint}}."""
+CLOZE_SHOWN = "color: #66D9EF; font-weight: 700;"
+CLOZE_BODY = re.compile(r"\{\{c(\d+)::(.*?)\}\}", re.S)
+
+
+def _safe_cloze(match: re.Match) -> str:
+    """Anki reads every "::" inside a cloze as the start of a hint, which breaks hidden code such as
+    `ActiveRecord::RecordNotFound`. Keep only a real hint (a last "::" outside code) and write every
+    other "::" as colons Anki does not split on."""
+    body = match.group(2)
+    cut = body.rfind("::")
+    hint = None
+    if cut >= 0 and body[:cut].count("<code>") == body[:cut].count("</code>") and "<code>" not in body[cut:]:
+        body, hint = body[:cut], body[cut + 2 :]
+    body = body.replace("::", "&#58;&#58;")
+    return f"{{{{c{match.group(1)}::{body}" + (f"::{hint}" if hint else "") + "}}"
+
+
+def cloze_side(html_text: str, reveal: bool) -> str:
+    """How Anki shows a cloze card, for previews outside Anki: hidden parts as [...] (or [hint]) on the
+    front, and highlighted on the back."""
+    if reveal:
+        return CLOZE.sub(lambda m: f'<span style="{CLOZE_SHOWN}">{m.group(2)}</span>', html_text)
+    return CLOZE.sub(lambda m: f'<span style="{CLOZE_SHOWN}">[{m.group(3) or "..."}]</span>', html_text)
+
+
 CALLOUTS = {
     "note": ("#448aff", "✎"),
     "info": ("#448aff", "ℹ"),
@@ -203,7 +230,7 @@ def to_html(markdown: str) -> str:
         out.append(_code(match.group(1).lower(), match.group(2)))
         pos = match.end()
     out.append(_prose(markdown[pos:]))
-    return "".join(out)
+    return CLOZE_BODY.sub(_safe_cloze, "".join(out))
 
 
 def question_html(markdown: str) -> str:

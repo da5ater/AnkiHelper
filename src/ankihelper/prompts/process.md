@@ -70,6 +70,8 @@ An entry with a "revision" field is a redo: "previous_cards" are the cards you m
 
 Formatting rules for "question" and "answer": a small Markdown subset only. Paragraphs, "- " bullet lists, **bold**, inline `code`, fenced code blocks. No headings, no tables, no HTML.
 
+Cloze cards: when an entry asks for a cloze (or "fill in the blank"), write the whole statement in "question" with each hidden part as {{c1::hidden text}} (c2, c3 for parts that should become separate cards, {{c1::text::hint}} for a hint), and any extra explanation in "answer", which may be empty. AnkiHelper imports it as a real Anki Cloze note. Never put a cloze inside a fenced code block (hide inline `code` instead), and never hide text that contains "::".
+
 Reply with ONLY a JSON object, no prose before or after, in exactly this shape:
 
 {"cards": [{"source_id": "<entry id>", "question": "...", "answer": "...", "tags": ["..."], "changed": false, "bloom": "remember", "group": "main"}], "skipped": [{"source_id": "<entry id>", "reason": "..."}]}

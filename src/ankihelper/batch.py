@@ -41,6 +41,11 @@ class Card:
     made_from: dict = field(default_factory=dict)
     """The card this one was made from ({"question", "answer"}) by Versions or a move, so the agent can go back to it."""
 
+    @property
+    def is_cloze(self) -> bool:
+        """A cloze card hides parts of its question ({{c1::...}}) and goes in as a Cloze note."""
+        return bool(render.CLOZE.search(self.question))
+
     @classmethod
     def parse(cls, raw) -> "Card":
         if not isinstance(raw, dict):
@@ -188,7 +193,7 @@ def clean(
 
 
 def card_html(card: Card, entry: Entry) -> tuple[str, str]:
-    front = render.question_html(card.question) + render.images_html(entry.images_for("question", "show") + card.pictures)
+    front = (render.to_html if card.is_cloze else render.question_html)(card.question) + render.images_html(entry.images_for("question", "show") + card.pictures)
     back = (
         render.to_html(card.answer)
         + render.images_html(entry.images_for("answer", "show"))
@@ -200,6 +205,12 @@ def card_html(card: Card, entry: Entry) -> tuple[str, str]:
 def _add(anki: AnkiConnect, cfg: Config, deck: str, card: Card, entry: Entry) -> int:
     for name in card.pictures:
         anki.store_media(name, str(config.media_dir() / name))
+    if card.is_cloze:
+        try:
+            fields = anki.field_names(cfg.cloze_note_type)[:2]
+        except AnkiError as error:
+            raise SetupProblem(f"Note type {cfg.cloze_note_type!r} for cloze cards is missing: {error}") from error
+        return anki.add_note(deck, cfg.cloze_note_type, *card_html(card, entry), anki_tags(card, entry), fields=tuple(fields))
     return anki.add_note(deck, cfg.note_type, *card_html(card, entry), anki_tags(card, entry))
 
 
@@ -228,10 +239,11 @@ def with_versions(cfg: Config, agent: str, entry: Entry, cards: list[Card]) -> l
     """The learner ticked Make versions when capturing: add every version of each main card right after it."""
     from . import review
 
+    targets = set(review.version_targets(cards))
     out = []
-    for card in cards:
+    for index, card in enumerate(cards):
         out.append(card)
-        if card.group != "main":
+        if index not in targets:
             continue
         others = [c for c in cards if c is not card]
         try:
@@ -341,7 +353,7 @@ def _run(cfg: Config, anki: AnkiConnect, agent: str, only: set[str] | None = Non
                     known_decks.add(deck)
                 _store_images(anki, entry)
                 for index, card in enumerate(entry_cards):
-                    if index == 0 and entry.source_note and entry.replace_source:
+                    if index == 0 and entry.source_note and entry.replace_source and not card.is_cloze:
                         outcome, final = replace_source(anki, entry, card), card
                     else:
                         outcome, final = import_card(anki, cfg, agent, entry, deck, card)

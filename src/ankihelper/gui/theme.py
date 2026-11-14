@@ -115,9 +115,13 @@ QPushButton#tile {{
 }}
 QPushButton#tile:hover {{ background: {SURFACE_HI}; }}
 
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 5px; min-height: 30px; }}
-QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QScrollBar:vertical {{ background: {SURFACE}; width: 16px; margin: 2px; border-radius: 7px; }}
+QScrollBar:horizontal {{ background: {SURFACE}; height: 16px; margin: 2px; border-radius: 7px; }}
+QScrollBar::handle:vertical {{ background: {MUTED}; border-radius: 6px; min-height: 48px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {MUTED}; border-radius: 6px; min-width: 48px; margin: 2px; }}
+QScrollBar::handle:hover {{ background: {TEXT}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QToolTip {{ background: {SURFACE_HI}; color: {TEXT}; border: 1px solid {BORDER}; padding: 6px; }}
 """
 

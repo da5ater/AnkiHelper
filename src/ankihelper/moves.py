@@ -50,11 +50,15 @@ class Move:
 
 
 SCENARIO = (
-    "Turn this card into one practice task built from real code and written like a LeetCode problem: one clear "
-    "goal, only the context needed to solve it, and examples that pin down the expected behavior, so the learner "
-    "focuses on writing the answer. Search the web, GitHub first, for a well-known open-source project that uses "
-    "exactly this technique (for Rails: Discourse, GitLab, Mastodon or Forem; for front-end: a real design system "
-    "or site), open the actual file, and build the task from it. "
+    "Turn this card into one practice task built from real code, asked the way LeetCode asks a problem: short and "
+    "precise, with exactly the information needed to solve it and not a word more, and never the answer. Give the "
+    "situation, the behavior that is needed and examples that pin it down, then leave the thinking to the learner: "
+    "the challenge is working out what to write. Never name the method, keyword or technique the learner has to "
+    "pick, on the front or in a TODO; the requirements and examples must make the right choice clear. "
+    "Search the web, GitHub first, for a well-known open-source project that uses exactly this technique (for "
+    "Rails: Discourse, GitLab, Mastodon or Forem; for front-end: a real design system or site), open the actual "
+    "file, and build the task from it. For a pure algorithm or data-structure card, a well-known interview problem "
+    "(LeetCode, Codeforces, NeetCode 150) can be the real code instead. "
     "The task must make the learner use the technique the way the real code does. When the card compares several "
     "things (find, find_by and where), the task needs every one of them. Never make the TODO a one-word fill-in "
     "such as writing `.all` or `.find_each`: the learner writes the working code the real file has, for example "
@@ -64,9 +68,9 @@ SCENARIO = (
     "(1) one or two sentences naming the project, the feature and what is needed, with file, class and method "
     "names in inline code; "
     "(2) the requirements as \"- \" bullets, one behavior each, with LeetCode-style examples using →, such as "
-    "`GET /api/v1/accounts/999` → `404`; "
+    "`GET /api/v1/accounts/999` → `404`, and any limits that matter (sizes, ordering, what must not happen); "
     "(3) the real surrounding code in ONE fenced code block, trimmed but with the project's real names, the part to "
-    "write replaced by `# TODO:` comments that say what goes there; "
+    "write replaced by `# TODO:` comments that say what the code must achieve, never how; "
     "(4) keep the project's own scopes, helpers and concerns that the real code uses (such as "
     "`without_unapproved`); never strip them out to make the task simpler. Show each one, and any column or "
     "association the learner cannot know, in a \"> [!info] Already in the project\" callout: its real definition "
@@ -74,8 +78,8 @@ SCENARIO = (
     "(5) one instruction, such as \"Write the code that replaces the TODOs.\" "
     "The back: the code that fills the TODOs in one fenced code block; then one bold-signaled bullet per technique "
     "on why it is the right one here and what it returns or raises, in inline code with → "
-    "(`find` → `ActiveRecord::RecordNotFound` → `404`); then the link to the file you read as "
-    "`[project: path](url)`. "
+    "(`find` → `ActiveRecord::RecordNotFound` → `404`); for an algorithm, one bullet on time and space "
+    "complexity; then the link to the file or problem you read as `[project: path](url)`. "
     "For a front-end card about CSS or layout, also give the card \"screens\": a \"Now\" page that reproduces "
     "the broken or current look and a \"Target\" page with the look to reach, each a small self-contained HTML "
     "page with its CSS inline. The front shows the current CSS in a code block and asks what to change to reach "
@@ -84,33 +88,7 @@ SCENARIO = (
     "the link."
 )
 
-LEETCODE = (
-    "Find one real problem from LeetCode, Codeforces or NeetCode where the card's technique or code has a natural, "
-    "useful role in a correct solution in the card's language. It need not be required by the best solution or "
-    "named in the problem statement. For language API cards, look for the underlying operation (such as case "
-    "conversion or capitalization checks), then use the API meaningfully in the solution. For cards comparing "
-    "return values or exceptions, explain how that distinction affects the implementation, including an input "
-    "that exposes the pitfall; do not claim the original problem asks about that language-specific behavior. "
-    "Search the web: the sites themselves and well-known GitHub lists of frequently asked "
-    "interview problems (Blind 75, NeetCode 150, LeetCode Top Interview 150, company-tagged lists). Prefer a "
-    "well-known, frequently asked problem, and open it to read exactly what it asks. "
-    "Write one new card laid out the way LeetCode shows a problem, so the learner only has to write the function. "
-    "The front, with a blank line between parts: the problem's name and difficulty as a link, "
-    "`[LeetCode 347: Top K Frequent Elements](url) · Medium`; the problem statement, faithful to the original; "
-    "Example 1 and Example 2 in one fenced code block as Input / Output / Explanation lines; the constraints as "
-    "\"- \" bullets; the starter function signature in a fenced code block in the card's language when the "
-    "problem allows it; and one line asking to solve it with the card's technique, named. "
-    "The back: the solution in a fenced code block, one bold-signaled bullet on where the technique does the "
-    "work, and one on time and space complexity in inline code (`O(n log k)` time, `O(n)` space). "
-    "Keep the original problem's requirements and examples distinct from any added practice requirement or "
-    "language-specific pitfall. Do not force an unrelated technique into a solution or invent a catalog problem. "
-    "Only return no new cards after searching for both the specific technique and its underlying operation and "
-    "finding no meaningful fit, for example a framework-only database API such as Rails' find_each. In that case, "
-    "say you did not find a suitable match, briefly explain why the candidates do not exercise the card, and "
-    "suggest 🎬 Make it a scenario. Never claim the entire catalog has no match based on a limited search."
-)
-
-RETIRED = {"write"}
+RETIRED = {"write", "leetcode"}
 """Built-in moves that were removed; the learner's saved copy is dropped unless they made it their own."""
 
 
@@ -118,7 +96,6 @@ BUILTIN = [
     Move("word", "✍", "Word it better", CHANGE, "Rewrite the question and the answer so they are clear, precise and short. Keep exactly the same meaning, facts and examples; only fix wording, grammar and code formatting.", builtin=True),
     Move("simple", "🗣", "Say it simply", CHANGE, "Rewrite the answer in plain, everyday words, the way one person explains it to another: short sentences, no jargon, and any technical term the learner needs explained in a few words the first time. Keep the question, every fact, code and example exactly as they are; the answer should not get longer than it needs to be.", builtin=True),
     Move("scenario", "🎬", "Make it a scenario", ADD, SCENARIO, builtin=True, web=True),
-    Move("leetcode", "🧩", "LeetCode it", ADD, LEETCODE, builtin=True, web=True),
     Move("split", "✂", "Split this", ADD, "Split this card into separate small cards, one per idea or list item, each with a context cue in its question so it makes sense on its own.", builtin=True),
     Move("versions", "✨", "Versions", ADD, "Write 3 or 4 alternative cards for the same knowledge, each using a different strategy (why, scenario, compare and contrast, reverse, interview) and climbing Bloom's taxonomy. Start each question with the strategy in brackets, for example [Scenario].", builtin=True),
 ]

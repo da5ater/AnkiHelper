@@ -17,7 +17,7 @@ def agent_replying(reply: dict, seen: list | None = None):
 
 
 def test_the_starting_moves_are_ordered_by_use():
-    assert [m.name for m in moves.ordered()] == ["Word it better", "Say it simply", "Make it a scenario", "LeetCode it", "Split this", "Versions"]
+    assert [m.name for m in moves.ordered()] == ["Word it better", "Say it simply", "Make it a scenario", "Split this", "Versions"]
     moves._change("split", lambda m: setattr(m, "uses", 3))
     assert moves.ordered()[0].name == "Split this"
 
@@ -212,10 +212,10 @@ def test_web_moves_let_the_agent_search_and_turn_screens_into_pictures(monkeypat
     assert calls[-1] is False, "moves without web stay offline"
 
 
-def test_leetcode_it_can_answer_that_no_real_problem_fits(monkeypatch):
-    monkeypatch.setattr(agents, "ask", agent_replying({"reply": "No real problem fits find_each; try Make it a scenario.", "new_cards": []}))
-    turn = bridge.run_move(Config(), 5, "leetcode", "<p>find_each vs all.each?</p>", "<p>batches</p>", [], None)
-    assert "new_cards" not in turn and "scenario" in turn["reply"]
+def test_leetcode_it_is_folded_into_make_it_a_scenario():
+    moves._save([*moves._load(), moves.Move("leetcode", "🧩", "LeetCode it", moves.ADD, "old", builtin=True)])
+    assert "leetcode" not in [m.id for m in moves.ordered()]
+    assert "the way LeetCode asks a problem" in moves.get("scenario").instruction
 
 
 def test_a_card_added_in_anki_remembers_its_source_for_later_moves(monkeypatch):

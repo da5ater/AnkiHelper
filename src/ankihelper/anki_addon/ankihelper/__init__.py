@@ -739,9 +739,22 @@ def optimize_card() -> None:
         return
     card_ids = note.card_ids()
     deck = mw.col.decks.name(mw.col.get_card(card_ids[0]).did) if card_ids else ""
-    payload = {"note_id": note.id, "question_html": note[sides[0]], "answer_html": note[sides[1]], "deck": deck}
-    tooltip("Opening AnkiHelper's preview with optimized versions of this card…")
+    versions = bool(_config().get("optimize_with_versions"))
+    payload = {"note_id": note.id, "question_html": note[sides[0]], "answer_html": note[sides[1]], "deck": deck, "versions": versions}
+    if versions:
+        tooltip("✓ Sent to AnkiHelper with versions. The next batch adds them to this deck; you can delete this card now.", period=5000)
+    else:
+        tooltip("Opening AnkiHelper's preview with optimized versions of this card…")
     call("optimize", payload, lambda reply: showWarning(reply["error"]) if "error" in reply else None)
+
+
+def _versions_tick() -> QAction:
+    """Remembered: Optimize sends the card with versions to the next batch instead of opening Preview."""
+    tick = QAction("✨ Optimize makes versions, without opening Preview", mw)
+    tick.setCheckable(True)
+    tick.setChecked(bool(_config().get("optimize_with_versions")))
+    tick.toggled.connect(lambda on: mw.addonManager.writeConfig(__name__, {**_config(), "optimize_with_versions": on}))
+    return tick
 
 
 def show_history() -> None:
@@ -909,6 +922,7 @@ def _context_menu(reviewer, menu: QMenu) -> None:
     menu.addAction("AnkiHelper: work on this card  (F)", fix_card)
     menu.addAction("AnkiHelper: optimize this card", optimize_card)
     menu.addAction("AnkiHelper: history of this card", show_history)
+    menu.addAction(_versions_tick())
 
 
 def _detached(*args: str) -> None:
@@ -962,6 +976,7 @@ def _review_menu() -> None:
     menu = QMenu(mw)
     menu.addAction("Work on this card  (F)", fix_card)
     menu.addAction("✨ Optimize this card", optimize_card)
+    menu.addAction(_versions_tick())
     menu.addAction("History of this card", show_history)
     menu.exec(QCursor.pos())
 
@@ -986,6 +1001,7 @@ def _menu() -> None:
         action.triggered.connect(handler)
         menu.addAction(action)
     menu.addSeparator()
+    menu.addAction(_versions_tick())
     ask_why = QAction("Ask why after my edits", mw)
     ask_why.setCheckable(True)
     ask_why.setChecked(bool(_config().get("ask_why_after_edit")))

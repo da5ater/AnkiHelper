@@ -73,8 +73,9 @@ def cmd_anki(args) -> int:
     note = lambda: int(request["note_id"])  # noqa: E731
     try:
         if args.action == "optimize":
-            entry = bridge.optimize(cfg, note(), request["question_html"], request["answer_html"], request.get("deck", ""))
-            _in_background("setup", "review", "--entry", entry.id)
+            entry = bridge.optimize(cfg, note(), request["question_html"], request["answer_html"], request.get("deck", ""), bool(request.get("versions")))
+            if not entry.versions:
+                _in_background("setup", "review", "--entry", entry.id)
             reply = {"entry_id": entry.id}
         elif args.action == "event":
             bridge.report(request)

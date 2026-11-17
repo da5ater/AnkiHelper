@@ -1,3 +1,4 @@
 {
-    "ask_why_after_edit": false
+    "ask_why_after_edit": false,
+    "optimize_with_versions": false
 }

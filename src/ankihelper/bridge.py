@@ -165,12 +165,13 @@ def finish_chat(
     return {"ok": True, "add_tags": [FIXED_TAG] if draft else [], "nudge_now": moves.nudge_due()}
 
 
-def optimize(cfg: Config, note_id: int, question_html: str, answer_html: str, deck: str) -> Entry:
-    """Turn an existing Anki card into an inbox entry so Preview can work on it with moves."""
+def optimize(cfg: Config, note_id: int, question_html: str, answer_html: str, deck: str, versions: bool = False) -> Entry:
+    """Turn an existing Anki card into an inbox entry so Preview can work on it with moves. With versions,
+    the next batch also writes and imports every version, without the learner opening Preview."""
     root = cfg.root_deck + "::"
     topic = deck[len(root) :] if deck.startswith(root) else deck
     entry = Entry.new(text_of(question_html), text_of(answer_html), topic)
-    entry.source_note, entry.deck = note_id, deck
+    entry.source_note, entry.deck, entry.versions = note_id, deck, versions
     from . import inbox
 
     inbox.append(entry)

@@ -60,3 +60,16 @@ def test_history_shows_changes_to_a_card_ankihelper_did_not_make():
     assert change["said"] == "teach me this / add the foreign key part to the card"
     assert change["after"]["question"].startswith("has_one vs belongs_to")
     assert change["restore"] == before_html, "the earlier version can be put back"
+
+
+def test_optimize_with_versions_goes_to_the_next_batch_without_opening_preview(monkeypatch, capsys):
+    opened = []
+    monkeypatch.setattr(cli, "_in_background", lambda *args: opened.append(args))
+    request = {"note_id": 42, "question_html": "<p>What does alias do?</p>", "answer_html": "<p>binds a name</p>", "deck": "Rails::ruby", "versions": True}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+
+    assert cli.main(["anki", "optimize"]) == 0
+
+    [entry] = inbox.read_all()
+    assert entry.versions and entry.source_note == 42 and entry.deck == "Rails::ruby"
+    assert opened == [], "Preview stays closed"

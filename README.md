@@ -2,7 +2,7 @@
 
 Make Anki cards while you study without leaving what you're doing. Press a shortcut, dictate a question and an answer, pick a topic, and go back to work. At the end of the session, run a batch: an AI agent (Claude Code, Codex, Gemini CLI or OpenCode) cleans up each card and AnkiHelper imports them into Anki through AnkiConnect. The agent fixes dictation mistakes, wording and code, and corrects wrong answers.
 
-[![Watch the 54-second demo](docs/demo.png)](docs/demo.mp4)
+https://github.com/user-attachments/assets/37bfaa6e-b19c-418b-8ca5-df22384243b5
 
 ## How it works
 

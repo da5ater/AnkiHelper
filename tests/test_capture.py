@@ -235,3 +235,20 @@ def test_a_slow_dictation_engine_never_freezes_the_window(window):
             break
         QTest.qWait(30)
     assert window.mic.isEnabled()
+
+
+def test_preview_cards_fit_the_window_even_with_long_code_and_many_buttons(window):
+    from ankihelper import review
+    from ankihelper.batch import Card
+
+    main = window.window_
+    entry = inbox.Entry.new("q", "a", "rails")
+    code = "```ruby\n@status = Status.where(account: current_account).find(params[:id]) # one long line of real code that never wraps on its own\n```"
+    session = review.Review(entry, [review.Slot(Card(entry.id, "How do `find`, `find_by` and `where` differ in what they look up and return?", code, [], True))])
+    main.go("review")
+    main.review.review = session
+    main.review.render()
+    QTest.qWait(50)
+
+    area = main.review.scroll
+    assert area.widget().width() <= area.viewport().width()

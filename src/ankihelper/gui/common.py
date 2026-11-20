@@ -1,10 +1,67 @@
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
+
+
+class FlowLayout(QLayout):
+    """Lays its widgets out in a row and wraps them onto the next line when the row runs out of room,
+    so a row of buttons never makes its card wider than the window."""
+
+    def __init__(self, spacing: int = 6):
+        super().__init__()
+        self.items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(spacing)
+
+    def addItem(self, item) -> None:
+        self.items.append(item)
+
+    def count(self) -> int:
+        return len(self.items)
+
+    def itemAt(self, index: int):
+        return self.items[index] if 0 <= index < len(self.items) else None
+
+    def takeAt(self, index: int):
+        return self.items.pop(index) if 0 <= index < len(self.items) else None
+
+    def expandingDirections(self) -> Qt.Orientation:
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._place(QRect(0, 0, width, 0), move=False)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._place(rect, move=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self.items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, rect: QRect, move: bool) -> int:
+        x, y, line = rect.x(), rect.y(), 0
+        for item in self.items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() + 1 and line > 0:
+                x, y, line = rect.x(), y + line + self.spacing(), 0
+            if move:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self.spacing()
+            line = max(line, hint.height())
+        return y + line - rect.y()
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:

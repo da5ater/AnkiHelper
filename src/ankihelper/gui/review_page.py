@@ -22,7 +22,7 @@ from .. import batch, config, inbox, moves, render, review
 from ..anki import AnkiConnect
 from ..config import Config
 from . import theme
-from .common import Page, card, label, pill
+from .common import FlowLayout, Page, card, label, pill
 from .worker import run_async
 
 GROUP_COLORS = {"main": theme.AMBER, "atomic": theme.BLUE, "optimized": theme.GREEN}
@@ -34,7 +34,8 @@ STUB_Y = 26
 
 def _rich(html: str) -> QLabel:
     media = QUrl.fromLocalFile(str(config.media_dir())).toString()
-    widget = QLabel(re.sub(r'src="(?!/|https?:|file:)', lambda _: f'src="{media}/', html))
+    html = re.sub(r'src="(?!/|https?:|file:)', lambda _: f'src="{media}/', html)
+    widget = QLabel(html.replace("<pre style=\"", "<pre style=\"white-space: pre-wrap; "))
     widget.setTextFormat(Qt.TextFormat.RichText)
     widget.setWordWrap(True)
     widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -170,8 +171,7 @@ class CardNode(QFrame):
             working.setStyleSheet(f"color: {theme.AMBER}; font-weight: 700;")
             layout.addWidget(working)
 
-        actions = QHBoxLayout()
-        actions.setSpacing(6)
+        actions = FlowLayout()
         buttons = []
         self.box = None
         if slot.status == review.REMOVED:
@@ -221,7 +221,6 @@ class CardNode(QFrame):
         for button in buttons:
             button.setEnabled(not locked)
             actions.addWidget(button)
-        actions.addStretch()
         layout.addLayout(actions)
         if self.box is not None:
             layout.addWidget(self.box)
@@ -268,7 +267,7 @@ class VersionNode(QFrame):
                 layout.addWidget(label(f"card {n} of {len(version.cards)}", "faint"))
             layout.addWidget(_side("FRONT", theme.PINK, front))
             layout.addWidget(_side("BACK", theme.CYAN, back))
-        actions = QHBoxLayout()
+        actions = FlowLayout()
         use = _small_button("↩ Switch back" if original else "⇄ Use instead", f"Replace card {index + 1} with this version", "go")
         use.clicked.connect(lambda: self.use.emit(index, number))
         add = _small_button("＋ Add as new card", "Keep the card and add this version next to it")
@@ -278,7 +277,6 @@ class VersionNode(QFrame):
         for button in (use, add, dismiss):
             button.setEnabled(not locked and (button is dismiss or not version.added))
             actions.addWidget(button)
-        actions.addStretch()
         layout.addLayout(actions)
 
 

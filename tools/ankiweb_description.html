@@ -5,11 +5,15 @@ This add-on is the Anki side of <a href="https://github.com/da5ater/AnkiHelper">
 <b>What the add-on does</b>
 <ul>
 <li>A <b>✎ AnkiHelper</b> button on the review screen, next to Edit: talk about and fix this card, optimize it, or see its history.</li>
-<li><b>F</b> on the review screen: work on the card you're studying. Press a move (Word it better, Say it simply, Make it a scenario, Make me write it, Split this, Versions) or say what you want changed, paste ideas or pictures, and add new cards with one click. OK keeps the new version (Edit → Undo brings the old one back).</li>
+<li><b>F</b> on the review screen: work on the card you're studying. Press a move (Word it better, Say it simply, Make it a scenario, Split this, Versions) or say what you want changed, paste ideas or pictures, and add new cards with one click, including real cloze cards. OK keeps the new version (Edit → Undo brings the old one back).</li>
+<li><b>🎬 Make it a scenario</b>: turns a card into a coding task built from real open-source code (Mastodon, Discourse, GitLab…), asked the way LeetCode asks: just enough context, examples of the expected behavior, and never a hint at which method to use. You write the code; the back has the real answer and a link to the file.</li>
+<li><b>✨ Versions</b>: 3 or 4 other ways to ask the same thing (why, scenario, compare, reverse, cloze, interview), climbing from recall to real use. When a card is about code, each version shows that code on its front.</li>
 <li><b>Your own moves</b>: ⭐ Save as move turns a conversation into a reusable one-click move; 🎓 Teach updates a move after you correct its result. Moves remember the results you kept, and once a day AnkiHelper suggests new moves from your conversations. You always see every card; nothing runs in bulk.</li>
-<li><b>✨ Optimize this card</b>: send a card you already have to AnkiHelper's preview to get a cleaner version plus deeper cards (why, when, scenario), and pick the ones you want.</li>
+<li><b>✨ Optimize this card</b>: send a card you already have to AnkiHelper's preview to get a cleaner version plus deeper cards, and pick the ones you want. Or tick <b>Optimize makes versions, without opening Preview</b>: the card goes straight to the next batch with all its versions, and you keep reviewing.</li>
+<li><b>Cards that remember where they came from</b>: every card made by a move, Versions or the F window knows the card it was made from, so when one confuses you later, press F and ask.</li>
 <li><b>History of this card</b> (right-click while reviewing): your original note and pictures, the other cards made from it, and the alternative versions you were offered, with one click to switch.</li>
-<li>An <b>AnkiHelper</b> button in the top bar opens the app: inbox, card preview, moves and settings.</li>
+<li>An <b>AnkiHelper</b> button in the top bar opens the app: inbox, card preview, moves and settings (including which model your agent uses).</li>
+<li>Cards are formatted to remember: the main point first, key terms in bold, highlighted code, and Obsidian-style callouts, tables and highlights.</li>
 </ul>
 
 <b>Requirements</b>
@@ -19,6 +23,6 @@ This add-on is the Anki side of <a href="https://github.com/da5ater/AnkiHelper">
 <li>One AI agent CLI (Claude Code, Codex, Gemini CLI or OpenCode), logged in.</li>
 </ul>
 
-Fixing works on cards with exactly two fields (a question and an answer); cloze and image occlusion cards are never rewritten. Linux is supported today; macOS and Windows support in the app is written but untested.
+Rewriting works on cards with exactly two fields (a question and an answer); existing cloze and image occlusion cards are never rewritten, though AnkiHelper can add new cloze cards. Linux and Windows are supported; macOS support in the app is written but untested.
 
 Source, issues and feedback: <a href="https://github.com/da5ater/AnkiHelper">github.com/da5ater/AnkiHelper</a>
